@@ -1,12 +1,13 @@
 from collections import namedtuple
 
 from common.realtime import sec_since_boot
-from selfdrive.config import CruiseButtons, Conversions as CV
+from selfdrive.config import Conversions as CV
 from selfdrive.boardd.boardd import can_list_to_can_capnp
 from selfdrive.controls.lib.drive_helpers import rate_limit
 from common.numpy_fast import clip, interp
 
 import selfdrive.car.gm.gmcan as gmcan
+from selfdrive.car.gm.carstate import CruiseButtons
 
 def actuator_hystereses(final_brake, braking, brake_steady, v_ego, civic):
   # hyst params... TODO: move these to VehicleParams
@@ -141,7 +142,7 @@ class CarController(object):
 
     # *** entry into controls state ***
     if (CS.prev_cruise_buttons == CruiseButtons.DECEL_SET or CS.prev_cruise_buttons == CruiseButtons.RES_ACCEL) and \
-        CS.cruise_buttons == 0 and not self.controls_allowed:
+        CS.cruise_buttons == CruiseButtons.UNPRESS and not self.controls_allowed:
       print "CONTROLS ARE LIVE"
       self.controls_allowed = True
 

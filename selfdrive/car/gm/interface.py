@@ -3,7 +3,7 @@ import time
 import numpy as np
 
 from selfdrive.config import Conversions as CV
-from selfdrive.car.gm.carstate import CarState
+from selfdrive.car.gm.carstate import CarState, CruiseButtons
 from selfdrive.car.gm.carcontroller import CarController
 from selfdrive.boardd.boardd import can_capnp_to_can_list
 
@@ -12,14 +12,6 @@ from cereal import car
 import zmq
 from selfdrive.services import service_list
 import selfdrive.messaging as messaging
-
-# Car button codes
-class CruiseButtons:
-  UNPRESS     = 2
-  RES_ACCEL   = 4
-  DECEL_SET   = 6
-  CANCEL      = 12
-  MAIN        = 10
 
 # Car chimes, beeps, blinker sounds etc
 class CM:

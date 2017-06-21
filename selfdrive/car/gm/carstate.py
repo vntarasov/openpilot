@@ -5,6 +5,14 @@ from common.realtime import sec_since_boot
 
 from selfdrive.car.gm.can_parser import CANParser
 
+# Car button codes
+class CruiseButtons:
+  UNPRESS     = 2
+  RES_ACCEL   = 4
+  DECEL_SET   = 6
+  CANCEL      = 12
+  MAIN        = 10
+
 def get_can_parser(CP):
   # this function generates lists for signal, messages and initial values
   dbc_f = 'chevy_volt_premier_2017_can.dbc'
@@ -39,8 +47,7 @@ class CarState(object):
 
     self.v_wheel = 0.0
 
-    # Unpressed
-    self.cruise_buttons = 2
+    self.cruise_buttons = CruiseButtons.UNPRESS
     self.lkas_gap_buttons = 0
 
   def update(self, can_pub_main):
