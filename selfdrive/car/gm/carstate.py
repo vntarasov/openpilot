@@ -50,6 +50,12 @@ class CarState(object):
     self.cruise_buttons = CruiseButtons.UNPRESS
     self.lkas_gap_buttons = 0
 
+    # TODO:
+    self.left_blinker_on = False
+    self.prev_left_blinker_on = False
+    self.right_blinker_on = False
+    self.prev_right_blinker_on = False
+
   def update(self, can_pub_main):
     cp = self.cp
     cp.update_can(can_pub_main)
@@ -79,11 +85,13 @@ class CarState(object):
 
     self.steer_override = False
 
-    self.steer_error = False
-    self.steer_not_allowed = False
-    self.brake_error = False
+    # TODO:
     self.door_all_closed = True
     self.seatbelt = True
+    self.steer_error = False
+
+    self.steer_not_allowed = False
+    self.brake_error = False
     self.esp_disabled = False
     self.main_on = True
     self.can_valid = True

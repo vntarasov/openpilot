@@ -72,11 +72,15 @@ class CarInterface(object):
 
     # steering wheel
     ret.steeringAngle = self.CS.angle_steers
+
+    # TODO: torque and user override. Need to reset driver awareness
+    # timer when the user uses the steering wheel.
     ret.steeringPressed = self.CS.steer_override
     ret.steeringTorque = 1 if ret.steeringPressed else 0
 
     buttonEvents = []
 
+    # TODO: blinkers
     if self.CS.left_blinker_on != self.CS.prev_left_blinker_on:
       be = car.CarState.ButtonEvent.new_message()
       be.type = 'leftBlinker'

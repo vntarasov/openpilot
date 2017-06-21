@@ -73,7 +73,7 @@ class CarController(object):
 
     # *** compute control surfaces ***
     tt = sec_since_boot()
-    GAS_MAX = 2048
+    GAS_MAX = 2047
 
     # If final_brake less than this, do pure regen
     REGEN_ONLY_BRAKE = 0.4
@@ -134,7 +134,7 @@ class CarController(object):
       apply_steer = 0
 
     if not enabled:
-      # Won't actually trigger regen braking
+      # Without 'engaged' flag sent, won't actually trigger regen braking
       apply_gas = MAX_ACC_REGEN
 
     # *** entry into controls state ***
@@ -197,8 +197,11 @@ class CarController(object):
     if self.chime != chime:
       duration = 0x3c
 
+      # There is no 'repeat forever' chime command
+      # TODO: Manage periodic re-issuing of chime command
+      # and chime cancellation
       if chime_cnt == -1:
-        chime_cnt = 255
+        chime_cnt = 10
 
       if chime != 0:
         can_sends.append(gmcan.create_chime_command(chime, duration, chime_cnt))
