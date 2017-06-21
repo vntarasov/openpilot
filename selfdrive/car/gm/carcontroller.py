@@ -64,9 +64,6 @@ class CarController(object):
       final_gas = 0.
       final_brake = 0.
       final_steer = 0.
-      # send pcm acc cancel cmd if drive is disabled but pcm is still on, or if the system can't be activated
-      # if CS.pcm_acc_status:
-      #  pcm_cancel_cmd = True
 
     # *** rate limit after the enable check ***
     final_brake = rate_limit(final_brake, self.final_brake_last, -2., 1./100)

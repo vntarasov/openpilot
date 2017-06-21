@@ -5,7 +5,6 @@ def create_steering_control(apply_steer, idx):
   checksum = checksum & 0xfff
   dat = [(idx << 4) | lkas_enabled | (apply_steer >> 8),
     apply_steer & 0xff, checksum >> 8, checksum & 0xff]
-  #print "".join(["%02x " % x for x in dat])
   return [0x180, 0, "".join(map(chr, dat)), 0x10]
 
 def create_adas_keepalive():
@@ -20,7 +19,6 @@ def create_gas_regen_command(throttle, idx, acc_engaged, at_full_stop):
   chk1 = (0x100 - gas_high - 1) & 0xff
   chk2 = (0x100 - gas_low - idx) & 0xff
   dat = [(idx << 6) | eng_bit, 0x42 | full_stop, gas_high, gas_low, 1 - eng_bit, 0xbd - full_stop, chk1, chk2]
-  #print "".join(["%02x " % x for x in dat])
   return [0x2cb, 0, "".join(map(chr, dat)), 0x10]
 
 def create_friction_brake_command(apply_brake, idx, near_stop, at_full_stop):
@@ -41,7 +39,6 @@ def create_friction_brake_command(apply_brake, idx, near_stop, at_full_stop):
   chk2 = checksum & 0xff
 
   dat = [mode | (brake >> 8), brake & 0xff, chk1, chk2, idx]
-  # print "apply brake ", apply_brake, " ".join(["%02x " % x for x in dat])
   return [0x315, 0, "".join(map(chr, dat)), 0x14]
 
 def create_acc_dashboard_command(acc_engaged, target_speed_ms, lead_car_in_sight):
@@ -51,7 +48,6 @@ def create_acc_dashboard_command(acc_engaged, target_speed_ms, lead_car_in_sight
   speed_high = target_speed >> 8
   speed_low = target_speed & 0xff
   dat = [0x01, 0x00, engaged | speed_high, speed_low, 0x01, lead_car]
-  # print "".join(["%02x " % x for x in dat])
   return [0x370, 0, "".join(map(chr, dat)), 0x10]
 
 def create_adas_time_status(tt, idx):
@@ -60,7 +56,6 @@ def create_adas_time_status(tt, idx):
   chksum = 0x1000 - dat[0] - dat[1] - dat[2] - dat[3]
   chksum = chksum & 0xfff
   dat += [0x40 + (chksum >> 8), chksum & 0xff, 0x12]
-  # print "".join(["%02x " % x for x in dat])
   return [0xa1, 0, "".join(map(chr, dat)), 0]
 
 def create_adas_steering_status(idx):
