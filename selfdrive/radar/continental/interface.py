@@ -10,23 +10,23 @@ from selfdrive.services import service_list
 import selfdrive.messaging as messaging
 import math
 
-NUM_TARGETS_MSG = 0x460
+NUM_TARGETS_MSG = 1120
 SLOT_1_MSG = NUM_TARGETS_MSG + 1
 NUM_SLOTS = 20
 LAST_RADAR_MSG = 0x47f
 
 def _create_radard_can_parser():
   # C1A-ARS3-A by Continental
-  dbc_f = 'continental_ars3a.dbc'
+  dbc_f = 'gm_global_a_object.dbc'
   radar_targets = range(SLOT_1_MSG, SLOT_1_MSG + NUM_SLOTS)
-  signals = zip(['NUM_TARGETS'] +
-                ['LONG_DIST'] * NUM_SLOTS + ['TARGET_ID'] * NUM_SLOTS +
-                ['VALUE_1'] * NUM_SLOTS + ['TARGET_ANGLE'] * NUM_SLOTS +
-                ['VALUE_3'] * NUM_SLOTS + ['REL_SPEED'] * NUM_SLOTS,
+  signals = zip(['LRRNumObjects'] +
+                ['TrkRange'] * NUM_SLOTS + ['TrkRangeRate'] * NUM_SLOTS +
+                ['TrkRangeAccel'] * NUM_SLOTS + ['TrkAzimuth'] * NUM_SLOTS +
+                ['TrkWidth'] * NUM_SLOTS + ['TrkObjectID'] * NUM_SLOTS,
                 [NUM_TARGETS_MSG] + radar_targets * 6,
-                [0] + [0.0] * NUM_SLOTS + [0] * NUM_SLOTS +
-                [0] * NUM_SLOTS + [0.0] * NUM_SLOTS +
-                [0] * NUM_SLOTS + [0.0] * NUM_SLOTS)
+                [0] + [0.0] * NUM_SLOTS + [0.0] * NUM_SLOTS +
+                [0.0] * NUM_SLOTS + [0.0] * NUM_SLOTS +
+                [0.0] * NUM_SLOTS + [0] * NUM_SLOTS)
 
   checks = []
 
@@ -67,8 +67,8 @@ class RadarInterface(object):
     ret.canMonoTimes = canMonoTimes
 
     currentTargets = set()
-    if self.rcp.vl[NUM_TARGETS_MSG]['NUM_TARGETS'] != self.num_targets:
-      self.num_targets = self.rcp.vl[NUM_TARGETS_MSG]['NUM_TARGETS']
+    if self.rcp.vl[NUM_TARGETS_MSG]['LRRNumObjects'] != self.num_targets:
+      self.num_targets = self.rcp.vl[NUM_TARGETS_MSG]['LRRNumObjects']
 
     # Not all radar messages describe targets,
     # no need to monitor all of the sself.rcp.msgs_upd
@@ -81,18 +81,18 @@ class RadarInterface(object):
 
       cpt = self.rcp.vl[ii]
       # Zero distance means it's an empty target slot
-      if cpt['LONG_DIST'] > 0.0:
-        targetId = cpt['TARGET_ID']
+      if cpt['TrkRange'] > 0.0:
+        targetId = cpt['TrkObjectID']
         currentTargets.add(targetId)
         if targetId not in self.pts:
           self.pts[targetId] = car.RadarState.RadarPoint.new_message()
           self.pts[targetId].trackId = targetId
-        distance = cpt['LONG_DIST']
+        distance = cpt['TrkRange']
         self.pts[targetId].dRel = distance # from front of car
         # From driver's pov, left is positive
         deg_to_rad = np.pi/180.
-        self.pts[targetId].yRel = math.sin(deg_to_rad * cpt['TARGET_ANGLE']) * distance
-        self.pts[targetId].vRel = cpt['REL_SPEED']
+        self.pts[targetId].yRel = math.sin(deg_to_rad * cpt['TrkAzimuth']) * distance
+        self.pts[targetId].vRel = cpt['TrkRangeRate']
         self.pts[targetId].aRel = float('nan')
         self.pts[targetId].yvRel = float('nan')
 

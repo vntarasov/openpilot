@@ -2,6 +2,7 @@ import numpy as np
 
 import selfdrive.messaging as messaging
 from common.realtime import sec_since_boot
+from selfdrive.config import Conversions as CV
 
 from selfdrive.car.gm.can_parser import CANParser
 
@@ -13,25 +14,32 @@ class CruiseButtons:
   CANCEL      = 12
   MAIN        = 10
 
-def get_can_parser(CP):
+def get_powertrain_can_parser():
   # this function generates lists for signal, messages and initial values
-  dbc_f = 'chevy_volt_premier_2017_can.dbc'
+  dbc_f = 'gm_global_a_powertrain.dbc'
   signals = [
-    ("GEAR_SHIFTER", 0x102cc040, 0),
-    ("STEER_WHEEL_ANGLE", 0x1e5, 0), # Both OBD 6-14 and OBD 12-13
-    ("WHEEL_SPEED_FL", 0x106b8040, 0),
-    ("WHEEL_SPEED_FR", 0x106b8040, 0),
-    ("WHEEL_SPEED_RL", 0x106b8040, 0),
-    ("WHEEL_SPEED_RR", 0x106b8040, 0),
-    ("CRUISE_BUTTONS", 0x10758040, 2),
-    ("LKAS_GAP_BUTTONS", 0x10756040, 0),
-    ("GAS_PEDAL", 0x102ca040, 0),
-    ("BRAKE_SENSOR", 0x10250040, 0),
-  ]
-  checks = [
+    ("SteeringWheelAngle", 485, 0),
+    ("FLWheelSpd", 840, 0),
+    ("FRWheelSpd", 840, 0),
+    ("RLWheelSpd", 842, 0),
+    ("RRWheelSpd", 842, 0),
+    ("BrakePedalPosition", 241, 0),
+    ("RegenPaddle", 189, 0),
+    ("AcceleratorPos", 190, 0),
+    ("PRNDL", 309, 0),
   ]
 
-  return CANParser(dbc_f, signals, checks)
+  return CANParser(dbc_f, signals)
+
+def get_lowspeed_can_parser():
+  # this function generates lists for signal, messages and initial values
+  dbc_f = 'gm_global_a_lowspeed.dbc'
+  signals = [
+    ("CruiseButtons", 276135936, 2),
+    ("LKAGapButton", 276127744, 0),
+  ]
+
+  return CANParser(dbc_f, signals)
 
 class CarState(object):
   def __init__(self, CP, logcan):
@@ -40,8 +48,9 @@ class CarState(object):
 
     self.brake_only = CP.enableCruise
 
-    # initialize can parser
-    self.cp = get_can_parser(CP)
+    # initialize can parsers
+    self.powertrain_cp = get_powertrain_can_parser()
+    self.lowspeed_cp = get_lowspeed_can_parser()
 
     self.car_gas = 0
 
@@ -56,30 +65,37 @@ class CarState(object):
     self.right_blinker_on = False
     self.prev_right_blinker_on = False
 
-  def update(self, can_pub_main):
-    cp = self.cp
-    cp.update_can(can_pub_main)
+  def update(self, can_powertrain, can_lowspeed):
+    powertrain_cp = self.powertrain_cp
+    powertrain_cp.update_can(can_powertrain)
+    lowspeed_cp = self.lowspeed_cp
+    lowspeed_cp.update_can(can_lowspeed)
 
-    self.can_valid = cp.can_valid
+    self.can_valid = powertrain_cp.can_valid
     self.prev_cruise_buttons = self.cruise_buttons
-    self.cruise_buttons = cp.vl[0x10758040]['CRUISE_BUTTONS']
-    self.lkas_gap_buttons = cp.vl[0x10756040]['LKAS_GAP_BUTTONS']
+    self.cruise_buttons = lowspeed_cp.vl[276135936]['CruiseButtons']
+    self.lkas_gap_buttons = lowspeed_cp.vl[276127744]['LKAGapButton']
 
     # calc best v_ego estimate, by averaging two opposite corners
     speed_estimate = (
-      cp.vl[0x106b8040]['WHEEL_SPEED_FL'] + cp.vl[0x106b8040]['WHEEL_SPEED_FR'] +
-      cp.vl[0x106b8040]['WHEEL_SPEED_RL'] + cp.vl[0x106b8040]['WHEEL_SPEED_RR']) / 4.0
+      powertrain_cp.vl[840]['FLWheelSpd'] + powertrain_cp.vl[840]['FRWheelSpd'] +
+      powertrain_cp.vl[842]['RLWheelSpd'] + powertrain_cp.vl[842]['RRWheelSpd']) / 4.0
 
-    self.v_ego = self.v_wheel = speed_estimate
+    self.v_ego = self.v_wheel = speed_estimate / CV.MS_TO_KPH
 
-    self.angle_steers = cp.vl[0x1e5]['STEER_WHEEL_ANGLE']
-    self.gear_shifter = cp.vl[0x102cc040]['GEAR_SHIFTER']
+    self.angle_steers = powertrain_cp.vl[485]['SteeringWheelAngle']
+    self.gear_shifter = powertrain_cp.vl[309]['PRNDL']
 
-    self.user_brake = cp.vl[0x10250040]["BRAKE_SENSOR"]
+    self.user_brake = powertrain_cp.vl[241]['BrakePedalPosition']
     # Brake pedal's potentiometer returns near-zero reading
     # even when pedal is not pressed
     self.brake_pressed = self.user_brake > 5
-    self.pedal_gas = cp.vl[0x102ca040]["GAS_PEDAL"]
+
+    self.regen_pressed = powertrain_cp.vl[189]['RegenPaddle']
+    # Regen braking is braking
+    self.brake_pressed = self.brake_pressed or self.regen_pressed
+
+    self.pedal_gas = powertrain_cp.vl[190]['AcceleratorPos']
     self.user_gas = self.pedal_gas
     self.user_gas_pressed = self.user_gas > 0
 
@@ -96,6 +112,6 @@ class CarState(object):
     self.main_on = True
     self.can_valid = True
 
-    # Alow Park (3) and D/L (0)
-    self.gear_shifter_valid = self.gear_shifter in [0, 3]
+    # Alow Park (0) and D/L (2)
+    self.gear_shifter_valid = self.gear_shifter in [0, 2]
 

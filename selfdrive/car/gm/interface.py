@@ -2,15 +2,13 @@
 import time
 import numpy as np
 
-from selfdrive.config import Conversions as CV
 from selfdrive.car.gm.carstate import CarState, CruiseButtons
 from selfdrive.car.gm.carcontroller import CarController
-from selfdrive.boardd.boardd import can_capnp_to_can_list
+from selfdrive.config import Conversions as CV
 
 from cereal import car
 
 import zmq
-from selfdrive.services import service_list
 import selfdrive.messaging as messaging
 
 # Car chimes, beeps, blinker sounds etc
@@ -41,23 +39,39 @@ class CarInterface(object):
   # returns a car.CarState
   def update(self):
     # ******************* do can recv *******************
-    can_pub_main = []
+    can_powertrain = []
+    can_lowspeed = []
     canMonoTimes = []
     for a in messaging.drain_sock(self.logcan):
       canMonoTimes.append(a.logMonoTime)
-      # Not listening on object detection (0 or 0x11 from Panda)
-      can_pub_main.extend(can_capnp_to_can_list(a.can, [1, 0x14]))
-    self.CS.update(can_pub_main)
+      # Only radar needs to listen on object detection bus,
+      # src 0 from main Neo board, or 0x11 from Panda.
+
+      # TODO: Parsing all needed car state on CANs other than
+      # low-speed GMLAN (src 1), so that openpilot would only
+      # need to use it to send chimes.
+
+      powertrain_src = 0x10
+      lowspeed_src = 1
+      for msg in a.can:
+        if msg.src == powertrain_src:
+          can_powertrain.append((msg.address, msg.busTime, msg.dat, msg.src))
+        elif msg.src == lowspeed_src:
+          # Drop sender ECU ID
+          address = msg.address & 0x1ffff000
+          can_lowspeed.append((address, msg.busTime, msg.dat, msg.src))
+    self.CS.update(can_powertrain, can_lowspeed)
 
     # create message
     ret = car.CarState.new_message()
 
     # speeds
     ret.vEgo = self.CS.v_ego
-    ret.wheelSpeeds.fl = self.CS.cp.vl[0x106b8040]['WHEEL_SPEED_FL']
-    ret.wheelSpeeds.fr = self.CS.cp.vl[0x106b8040]['WHEEL_SPEED_FR']
-    ret.wheelSpeeds.rl = self.CS.cp.vl[0x106b8040]['WHEEL_SPEED_RL']
-    ret.wheelSpeeds.rr = self.CS.cp.vl[0x106b8040]['WHEEL_SPEED_RR']
+    cv = 1.0 / CV.MS_TO_KPH
+    ret.wheelSpeeds.fl = self.CS.powertrain_cp.vl[840]['FLWheelSpd'] * cv
+    ret.wheelSpeeds.fr = self.CS.powertrain_cp.vl[840]['FRWheelSpd'] * cv
+    ret.wheelSpeeds.rl = self.CS.powertrain_cp.vl[842]['RLWheelSpd'] * cv
+    ret.wheelSpeeds.rr = self.CS.powertrain_cp.vl[842]['RRWheelSpd'] * cv
 
     # gas pedal information.
     ret.gas = self.CS.pedal_gas / 254.0
@@ -138,7 +152,7 @@ class CarInterface(object):
       errors.append('espDisabled')
     if not self.CS.main_on:
       errors.append('wrongCarMode')
-    if self.CS.gear_shifter == 2:
+    if self.CS.gear_shifter == 3:
       errors.append('reverseGear')
 
     ret.errors = errors
