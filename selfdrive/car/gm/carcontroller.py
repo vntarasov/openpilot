@@ -157,8 +157,9 @@ class CarController(object):
     if frame % adas_keepalive_step == 0:
       can_sends += gmcan.create_adas_keepalive()
 
-    # Send steering command, 10hz
-    steer_send_step = 10
+    # Send steering command at 20hz instead of stock 10hz
+    # for better accuracy
+    steer_send_step = 5
     if frame % steer_send_step == 0:
       idx = (frame / steer_send_step) % 4
       can_sends.append(gmcan.create_steering_control(apply_steer, idx))
