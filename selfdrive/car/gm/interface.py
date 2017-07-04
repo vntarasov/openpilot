@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 import time
-import numpy as np
+import common.numpy_fast as np
 
 from selfdrive.car.gm.carstate import CarState, CruiseButtons
 from selfdrive.car.gm.carcontroller import CarController
