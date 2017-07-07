@@ -44,15 +44,13 @@ class CarInterface(object):
     canMonoTimes = []
     for a in messaging.drain_sock(self.logcan):
       canMonoTimes.append(a.logMonoTime)
-      # Only radar needs to listen on object detection bus,
-      # src 0 from main Neo board, or 0x11 from Panda.
 
-      # TODO: Parsing all needed car state on CANs other than
-      # low-speed GMLAN (src 1), so that openpilot would only
-      # need to use it to send chimes.
+      # Panda forwards powertrain to object detection bus
+      powertrain_src = 0
 
-      powertrain_src = 0x10
+      # ACC set/res buttons are only available on low-speed GMLAN
       lowspeed_src = 1
+
       for msg in a.can:
         if msg.src == powertrain_src:
           can_powertrain.append((msg.address, msg.busTime, msg.dat, msg.src))
@@ -60,6 +58,7 @@ class CarInterface(object):
           # Drop sender ECU ID
           address = msg.address & 0x1ffff000
           can_lowspeed.append((address, msg.busTime, msg.dat, msg.src))
+
     self.CS.update(can_powertrain, can_lowspeed)
 
     # create message
