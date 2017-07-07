@@ -27,6 +27,8 @@ def get_powertrain_can_parser():
     ("RegenPaddle", 189, 0),
     ("AcceleratorPos", 190, 0),
     ("PRNDL", 309, 0),
+    ("HandsOffSWlDetectionStatus", 388, 0),
+    ("LKATorqueDeliveredStatus", 388, 0)
   ]
 
   return CANParser(dbc_f, signals)
@@ -99,14 +101,17 @@ class CarState(object):
     self.user_gas = self.pedal_gas
     self.user_gas_pressed = self.user_gas > 0
 
-    self.steer_override = False
+    # 1 - hands on, 0 - off
+    self.steer_override = powertrain_cp.vl[388]['HandsOffSWlDetectionStatus'] != 0
+
+    # Temporary disable steering command, for about 200ms
+    self.steer_not_allowed = powertrain_cp.vl[388]['LKATorqueDeliveredStatus'] > 2
 
     # TODO:
     self.door_all_closed = True
     self.seatbelt = True
     self.steer_error = False
 
-    self.steer_not_allowed = False
     self.brake_error = False
     self.esp_disabled = False
     self.main_on = True
