@@ -39,6 +39,7 @@ def get_lowspeed_can_parser():
   signals = [
     ("CruiseButtons", 276135936, 2),
     ("LKAGapButton", 276127744, 0),
+    ("GasPedal", 271360000, 0)
   ]
 
   return CANParser(dbc_f, signals)
@@ -97,7 +98,7 @@ class CarState(object):
     # Regen braking is braking
     self.brake_pressed = self.brake_pressed or self.regen_pressed
 
-    self.pedal_gas = powertrain_cp.vl[190]['AcceleratorPos']
+    self.pedal_gas = lowspeed_cp.vl[271360000]['GasPedal']
     self.user_gas = self.pedal_gas
     self.user_gas_pressed = self.user_gas > 0
 
