@@ -47,6 +47,7 @@ class CarController(object):
     self.final_brake_last = 0.
     self.start_time = sec_since_boot()
     self.chime = 0
+    self.inhibit_steer_for = 0
 
     # redundant safety check with the board
     self.controls_allowed = False
@@ -130,8 +131,15 @@ class CarController(object):
       apply_brake = 0
 
     if CS.steer_not_allowed:
-      print "STEER ALERT, TORQUE INHIBITED"
+      # Temporary disable steering command,
+      # re-enabling after 200ms seems to be working great
+      if enabled and self.inhibit_steer_for == 0:
+        print "STEER ALERT, TORQUE INHIBITED"
+        self.inhibit_steer_for = 20
+
+    if self.inhibit_steer_for > 0:
       apply_steer = 0
+      self.inhibit_steer_for -= 1
 
     if not enabled:
       # Without 'engaged' flag sent, won't actually trigger regen braking
@@ -157,14 +165,14 @@ class CarController(object):
     if frame % adas_keepalive_step == 0:
       can_sends += gmcan.create_adas_keepalive()
 
-    # Send steering command at 20hz instead of stock 10hz
-    # for better accuracy
-    steer_send_step = 5
+    # Stock ASCM refresh rate is at 10Hz when it's not
+    # in LKA control and 50Hz when it is.
+    steer_send_step = 5 # 20Hz
     if frame % steer_send_step == 0:
       idx = (frame / steer_send_step) % 4
       can_sends.append(gmcan.create_steering_control(apply_steer, idx))
 
-    # Gas/regen and brakes - all at 25hz
+    # Gas/regen and brakes - all at 25Hz
     if (frame % 4) == 0:
       idx = (frame / 4) % 4
 
