@@ -102,7 +102,7 @@ class CarState(object):
     self.user_gas = self.pedal_gas
     self.user_gas_pressed = self.user_gas > 0
 
-    self.steer_override = powertrain_cp.vl[388]['LKADriverAppldTrq'] > 3.0
+    self.steer_override = abs(powertrain_cp.vl[388]['LKADriverAppldTrq']) > 3.0
 
     # 3 - failed, 2 - temporary limited
     self.steer_not_allowed = powertrain_cp.vl[388]['LKATorqueDeliveredStatus'] >= 2
