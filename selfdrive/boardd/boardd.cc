@@ -53,7 +53,7 @@ bool usb_connect() {
   err = libusb_claim_interface(dev_handle, 0);
   if (err != 0) { return false; }
 
-  if(loopback_can) {
+  if (loopback_can) {
     libusb_control_transfer(dev_handle, 0xc0, 0xe5, 1, 0, NULL, 0, TIMEOUT);
   }
 
@@ -64,7 +64,7 @@ bool usb_connect() {
   //libusb_control_transfer(dev_handle, 0xc0, 0xdd, 1, 2, NULL, 0, TIMEOUT);
 
   // set UART modes for Honda Accord
-  for (int uart = 2; uart <= 3; uart++) {
+  /*for (int uart = 2; uart <= 3; uart++) {
     // 9600 baud
     libusb_control_transfer(dev_handle, 0x40, 0xe1, uart, 9600, NULL, 0, TIMEOUT);
     // even parity
@@ -78,7 +78,7 @@ bool usb_connect() {
   libusb_control_transfer(dev_handle, 0x40, 0xde, 0, 0,
                           (unsigned char *)&baud, sizeof(baud), TIMEOUT); // CAN1
   libusb_control_transfer(dev_handle, 0x40, 0xde, 1, 0,
-                          (unsigned char *)&baud, sizeof(baud), TIMEOUT); // CAN2
+                          (unsigned char *)&baud, sizeof(baud), TIMEOUT); // CAN2*/
 
   // TODO: Boardd should be able to be told which safety model to use
   libusb_control_transfer(dev_handle, 0x40, 0xdc, SAFETY_HONDA, 0, NULL, 0, TIMEOUT);

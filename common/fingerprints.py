@@ -1,3 +1,4 @@
+import os
 
 _FINGERPRINTS = {
   "ACURA ILX 2016 ACURAWATCH PLUS": {
@@ -57,30 +58,13 @@ def fingerprint(logcan):
   import selfdrive.messaging as messaging
   from cereal import car
   from common.realtime import sec_since_boot
-  import os
+
   if os.getenv("SIMULATOR") is not None or logcan is None:
-    # send message
-    ret = car.CarParams.new_message()
-
-    ret.carName = "simulator"
-    ret.radarName = "nidec"
-    ret.carFingerprint = "THE LOW QUALITY SIMULATOR"
-
-    ret.enableSteer = True
-    ret.enableBrake = True
-    ret.enableGas = True
-    ret.enableCruise = False
-
-    ret.wheelBase = 2.67
-    ret.steerRatio = 15.3
-    ret.slipFactor = 0.0014
-
-    ret.steerKp, ret.steerKi = 12.0, 1.0
-    return ret
+    return ("simulator", None)
+  elif os.getenv("SIMULATOR2") is not None:
+    return ("simulator2", None)
 
   print "waiting for fingerprint..."
-  brake_only = True
-
   candidate_cars = all_known_cars()
   finger = {}
   st = None
@@ -89,9 +73,6 @@ def fingerprint(logcan):
       if st is None:
         st = sec_since_boot()
       for can in a.can:
-        # pedal
-        if can.address == 0x201 and can.src == 0:
-          brake_only = False
         if can.src == 0:
           finger[can.address] = len(can.dat)
         candidate_cars = eliminate_incompatible_cars(can, candidate_cars)
@@ -104,64 +85,5 @@ def fingerprint(logcan):
         print "%#xL: %d," % (addr, length),
       raise Exception("car doesn't match any fingerprints")
 
-  fingerprinted = candidate_cars[0]
-  print "fingerprinted", fingerprinted
-
-  # send message
-  ret = car.CarParams.new_message()
-  ret.carFingerprint = fingerprinted
-
-  if fingerprinted == "HONDA CIVIC 2016 TOURING":
-    ret.carName = "honda"
-    ret.steerKp, ret.steerKi = 12.0, 1.0
-  elif fingerprinted == "ACURA ILX 2016 ACURAWATCH PLUS":
-    ret.carName = "honda"
-    if not brake_only:
-      # assuming if we have an interceptor we also have a torque mod
-      ret.steerKp, ret.steerKi = 6.0, 0.5
-    else:
-      ret.steerKp, ret.steerKi = 12.0, 1.0
-  elif fingerprinted == "HONDA ACCORD 2016 TOURING":
-    ret.carName = "honda"
-    ret.steerKp, ret.steerKi = 12.0, 1.0
-  elif fingerprinted == "HONDA CR-V 2016 TOURING":
-    ret.carName = "honda"
-    ret.steerKp, ret.steerKi = 6.0, 0.5
-  elif fingerprinted == "CHEVROLET VOLT 2017 PREMIER":
-    ret.carName = "gm"
-  else:
-    raise ValueError("unsupported car %s" % candidate_cars[0])
-
-  if ret.carName == "honda":
-    ret.radarName = "nidec"
-
-    ret.enableSteer = True
-    ret.enableBrake = True
-    ret.enableGas = not brake_only
-    ret.enableCruise = brake_only
-    #ret.enableCruise = False
-
-    ret.wheelBase = 2.67
-    ret.steerRatio = 15.3
-    ret.slipFactor = 0.0014
-
-  elif ret.carName == "gm":
-    ret.radarName = "continental"
-
-    brake_only = False
-    ret.enableSteer = True
-    ret.enableBrake = True
-    ret.enableGas = not brake_only
-    ret.enableCruise = brake_only
-
-    ret.wheelBase = 2.69
-    ret.steerRatio = 15.7
-    ret.slipFactor = 0.0014
-
-    ret.steerKp = 5.5
-    ret.steerKi = 0.35
-
-    return ret
-
-  else:
-    raise ValueError("unsupported car name %s" % ret.carName)
+  print "fingerprinted", candidate_cars[0]
+  return (candidate_cars[0], finger)

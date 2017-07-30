@@ -89,6 +89,7 @@ def can_recv():
 
 def can_init():
   global handle, context
+  handle = None
   cloudlog.info("attempting can init")
 
   context = usb1.USBContext()
