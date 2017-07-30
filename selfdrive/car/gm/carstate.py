@@ -1,7 +1,7 @@
 import common.numpy_fast as np
+from common.realtime import sec_since_boot
 
 import selfdrive.messaging as messaging
-from common.realtime import sec_since_boot
 from selfdrive.config import Conversions as CV
 
 from selfdrive.car.gm.can_parser import CANParser
@@ -18,6 +18,7 @@ def get_powertrain_can_parser():
   # this function generates lists for signal, messages and initial values
   dbc_f = 'gm_global_a_powertrain.dbc'
   signals = [
+    # sig_name, sig_address, default
     ("SteeringWheelAngle", 485, 0),
     ("FLWheelSpd", 840, 0),
     ("FRWheelSpd", 840, 0),
@@ -68,7 +69,7 @@ class CarState(object):
     self.right_blinker_on = False
     self.prev_right_blinker_on = False
 
-  def update(self, can_powertrain, can_lowspeed):
+  def update(self, can_powertrain=None, can_lowspeed=None):
     powertrain_cp = self.powertrain_cp
     powertrain_cp.update_can(can_powertrain)
     lowspeed_cp = self.lowspeed_cp

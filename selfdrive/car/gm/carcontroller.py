@@ -1,13 +1,14 @@
 from collections import namedtuple
 
+from common.numpy_fast import clip, interp
 from common.realtime import sec_since_boot
+
 from selfdrive.config import Conversions as CV
+from selfdrive.car.gm.carstate import CruiseButtons
 from selfdrive.boardd.boardd import can_list_to_can_capnp
 from selfdrive.controls.lib.drive_helpers import rate_limit
-from common.numpy_fast import clip, interp
+from . import gmcan
 
-import selfdrive.car.gm.gmcan as gmcan
-from selfdrive.car.gm.carstate import CruiseButtons
 
 def actuator_hystereses(final_brake, braking, brake_steady, v_ego, civic):
   # hyst params... TODO: move these to VehicleParams

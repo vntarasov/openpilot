@@ -2,13 +2,12 @@
 import time
 import common.numpy_fast as np
 
-from selfdrive.car.gm.carstate import CarState, CruiseButtons
-from selfdrive.car.gm.carcontroller import CarController
 from selfdrive.config import Conversions as CV
+from .carstate import CarState, CruiseButtons
+from .carcontroller import CarController
 
 from cereal import car
 
-import zmq
 import selfdrive.messaging as messaging
 
 # Car chimes, beeps, blinker sounds etc
@@ -35,6 +34,33 @@ class CarInterface(object):
     if sendcan is not None:
       self.sendcan = sendcan
       self.CC = CarController()
+
+  @staticmethod
+  def get_params(candidate, fingerprint):
+
+    if candidate != "CHEVROLET VOLT 2017 PREMIER":
+      raise ValueError("unsupported car %s" % candidate)
+
+    ret = car.CarParams.new_message()
+
+    ret.carName = "gm"
+    ret.radarName = "continental"
+    ret.carFingerprint = candidate
+
+    brake_only = False
+    ret.enableSteer = True
+    ret.enableBrake = True
+    ret.enableGas = not brake_only
+    ret.enableCruise = brake_only
+
+    ret.wheelBase = 2.69
+    ret.steerRatio = 15.7
+    ret.slipFactor = 0.0014
+
+    ret.steerKp = 5.5
+    ret.steerKi = 0.35
+
+    return ret
 
   # returns a car.CarState
   def update(self):
@@ -91,6 +117,11 @@ class CarInterface(object):
     ret.steeringPressed = self.CS.steer_override
     ret.steeringTorque = 1 if ret.steeringPressed else 0
 
+    # cruise state
+    ret.cruiseState.enabled = False
+    ret.cruiseState.speed = 0
+    ret.cruiseState.available = True
+
     buttonEvents = []
 
     # TODO: blinkers
@@ -138,7 +169,7 @@ class CarInterface(object):
     if self.CS.steer_error:
       errors.append('steerUnavailable')
     elif self.CS.steer_not_allowed:
-      errors.append('steerTemporarilyUnavailable')
+      errors.append('steerTempUnavailable')
     if self.CS.brake_error:
       errors.append('brakeUnavailable')
     if not self.CS.gear_shifter_valid:
