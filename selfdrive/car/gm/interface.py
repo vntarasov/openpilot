@@ -57,8 +57,8 @@ class CarInterface(object):
     ret.steerRatio = 15.7
     ret.slipFactor = 0.0014
 
-    ret.steerKp = 5.5
-    ret.steerKi = 0.35
+    ret.steerKp = 2.8
+    ret.steerKi = 0.5
 
     return ret
 
