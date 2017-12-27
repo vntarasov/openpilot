@@ -3,6 +3,7 @@ import time
 import common.numpy_fast as np
 
 from selfdrive.config import Conversions as CV
+from selfdrive.controls.lib.drive_helpers import create_event, EventTypes as ET, get_events
 from .carstate import CarState, CruiseButtons
 from .carcontroller import CarController
 
@@ -20,20 +21,29 @@ class CM:
   HIGH_CHIME = 0x87
 
 class CarInterface(object):
-  def __init__(self, CP, logcan, sendcan=None):
-    self.logcan = logcan
+  def __init__(self, CP, sendcan=None):
     self.CP = CP
 
     self.frame = 0
+    self.gas_pressed_prev = False
+    self.brake_pressed_prev = False
     self.can_invalid_count = 0
 
     # *** init the major players ***
-    self.CS = CarState(CP, self.logcan)
+    self.CS = CarState(CP)
 
     # sending if read only is False
     if sendcan is not None:
       self.sendcan = sendcan
       self.CC = CarController()
+
+  @staticmethod
+  def compute_gb(accel, speed):
+    return float(accel) / 3.0
+
+  @staticmethod
+  def calc_accel_override(a_ego, a_target, v_ego, v_target):
+    return 1.0
 
   @staticmethod
   def get_params(candidate, fingerprint):
@@ -47,45 +57,77 @@ class CarInterface(object):
     ret.radarName = "continental"
     ret.carFingerprint = candidate
 
-    brake_only = False
     ret.enableSteer = True
     ret.enableBrake = True
-    ret.enableGas = not brake_only
-    ret.enableCruise = brake_only
+    ret.enableGas = True
+    ret.enableCruise = False
 
-    ret.wheelBase = 2.69
+    # supports stop and go, but initial engage must be above 15mph
+    ret.minEnableSpeed = 15 * CV.MPH_TO_MS
+
+    # kg of standard extra cargo to count for drive, gas, etc...
+    std_cargo = 136
+    ret.mass = 1607 + std_cargo
+
+    ret.safetyModel = car.CarParams.SafetyModels.gm
+
+    ret.wheelbase = 2.69
     ret.steerRatio = 15.7
-    ret.slipFactor = 0.0014
+    ret.steerRatioRear = 0.
+    ret.centerToFront = ret.wheelbase * 0.4 # wild guess
 
-    ret.steerKp = 2.8
-    ret.steerKi = 0.5
+    # hardcoding honda civic 2016 touring params so they can be used to
+    # scale unknown params for other cars
+    mass_civic = 2923./2.205 + std_cargo
+    wheelbase_civic = 2.70
+    centerToFront_civic = wheelbase_civic * 0.4
+    centerToRear_civic = wheelbase_civic - centerToFront_civic
+    rotationalInertia_civic = 2500
+    tireStiffnessFront_civic = 85400
+    tireStiffnessRear_civic = 90000
+
+    centerToRear = ret.wheelbase - ret.centerToFront
+    # TODO: get actual value, for now starting with reasonable value for
+    # civic and scaling by mass and wheelbase
+    ret.rotationalInertia = rotationalInertia_civic * \
+                            ret.mass * ret.wheelbase**2 / (mass_civic * wheelbase_civic**2)
+
+    # TODO: start from empirically derived lateral slip stiffness for the civic and scale by
+    # mass and CG position, so all cars will have approximately similar dyn behaviors
+    ret.tireStiffnessFront = tireStiffnessFront_civic * \
+                             ret.mass / mass_civic * \
+                             (centerToRear / ret.wheelbase) / (centerToRear_civic / wheelbase_civic)
+    ret.tireStiffnessRear = tireStiffnessRear_civic * \
+                            ret.mass / mass_civic * \
+                            (ret.centerToFront / ret.wheelbase) / (centerToFront_civic / wheelbase_civic)
+
+    ret.steerKp = 0.15
+    ret.steerKi = 0.05
+    ret.steerKf = 0.
+    ret.steerMaxBP = [0.] # m/s
+    ret.steerMaxV = [1.]
+    ret.gasMaxBP = [0.]
+    ret.gasMaxV = [0.4]
+    ret.brakeMaxBP = [5., 20.]
+    ret.brakeMaxV = [0.8, 0.6]
+    ret.longPidDeadzoneBP = [0.]
+    ret.longPidDeadzoneV = [0.]
+
+    ret.longitudinalKpBP = [0., 5., 35.]
+    ret.longitudinalKpV = [3.6, 2.4, 1.5]
+    ret.longitudinalKiBP = [0., 35.]
+    ret.longitudinalKiV = [0.54, 0.36]
+
+    ret.steerLimitAlert = True
+
+    ret.stoppingControl = True
+    ret.startAccel = 0.5
 
     return ret
 
   # returns a car.CarState
-  def update(self):
-    # ******************* do can recv *******************
-    can_powertrain = []
-    can_lowspeed = []
-    canMonoTimes = []
-    for a in messaging.drain_sock(self.logcan):
-      canMonoTimes.append(a.logMonoTime)
-
-      # Panda forwards powertrain to object detection bus
-      powertrain_src = 0
-
-      # ACC set/res buttons are only available on low-speed GMLAN
-      lowspeed_src = 1
-
-      for msg in a.can:
-        if msg.src == powertrain_src:
-          can_powertrain.append((msg.address, msg.busTime, msg.dat, msg.src))
-        elif msg.src == lowspeed_src:
-          # Drop sender ECU ID
-          address = msg.address & 0x1ffff000
-          can_lowspeed.append((address, msg.busTime, msg.dat, msg.src))
-
-    self.CS.update(can_powertrain, can_lowspeed)
+  def update(self, c):
+    self.CS.update()
 
     # create message
     ret = car.CarState.new_message()
@@ -100,10 +142,7 @@ class CarInterface(object):
 
     # gas pedal information.
     ret.gas = self.CS.pedal_gas / 254.0
-    if not self.CP.enableGas:
-      ret.gasPressed = self.CS.pedal_gas > 0
-    else:
-      ret.gasPressed = self.CS.user_gas_pressed
+    ret.gasPressed = self.CS.user_gas_pressed
 
     # brake pedal
     ret.brake = self.CS.user_brake
@@ -112,10 +151,10 @@ class CarInterface(object):
     # steering wheel
     ret.steeringAngle = self.CS.angle_steers
 
-    # TODO: torque and user override. Need to reset driver awareness
-    # timer when the user uses the steering wheel.
+    # torque and user override. Driver awareness
+    # timer resets when the user uses the steering wheel.
     ret.steeringPressed = self.CS.steer_override
-    ret.steeringTorque = 1 if ret.steeringPressed else 0
+    ret.steeringTorque = self.CS.steer_torque_driver
 
     # cruise state
     ret.cruiseState.enabled = False
@@ -158,35 +197,51 @@ class CarInterface(object):
 
     ret.buttonEvents = buttonEvents
 
-    # errors
-    errors = []
+    events = []
     if not self.CS.can_valid:
       self.can_invalid_count += 1
       if self.can_invalid_count >= 5:
-        errors.append('commIssue')
+        events.append(create_event('commIssue', [ET.NO_ENTRY, ET.IMMEDIATE_DISABLE]))
     else:
       self.can_invalid_count = 0
     if self.CS.steer_error:
-      errors.append('steerUnavailable')
-    elif self.CS.steer_not_allowed:
-      errors.append('steerTempUnavailable')
+      events.append(create_event('steerUnavailable', [ET.NO_ENTRY, ET.IMMEDIATE_DISABLE]))
+    if self.CS.steer_not_allowed:
+      events.append(create_event('steerTempUnavailable', [ET.NO_ENTRY, ET.WARNING]))
     if self.CS.brake_error:
-      errors.append('brakeUnavailable')
+      events.append(create_event('brakeUnavailable', [ET.NO_ENTRY, ET.IMMEDIATE_DISABLE]))
     if not self.CS.gear_shifter_valid:
-      errors.append('wrongGear')
+      events.append(create_event('wrongGear', [ET.NO_ENTRY, ET.SOFT_DISABLE]))
     if not self.CS.door_all_closed:
-      errors.append('doorOpen')
+      events.append(create_event('doorOpen', [ET.NO_ENTRY, ET.SOFT_DISABLE]))
     if not self.CS.seatbelt:
-      errors.append('seatbeltNotLatched')
-    if self.CS.esp_disabled:
-      errors.append('espDisabled')
+      events.append(create_event('seatbeltNotLatched', [ET.NO_ENTRY, ET.SOFT_DISABLE]))
     if not self.CS.main_on:
-      errors.append('wrongCarMode')
+      events.append(create_event('wrongCarMode', [ET.NO_ENTRY, ET.USER_DISABLE]))
     if self.CS.gear_shifter == 3:
-      errors.append('reverseGear')
+      events.append(create_event('reverseGear', [ET.NO_ENTRY, ET.IMMEDIATE_DISABLE]))
 
-    ret.errors = errors
-    ret.canMonoTimes = canMonoTimes
+    # disable on pedals rising edge or when brake is pressed and speed isn't zero
+    if (ret.gasPressed and not self.gas_pressed_prev) or \
+       (ret.brakePressed and (not self.brake_pressed_prev or ret.vEgo > 0.001)):
+      events.append(create_event('pedalPressed', [ET.NO_ENTRY, ET.USER_DISABLE]))
+
+    # handle button presses
+    for b in ret.buttonEvents:
+
+      # do enable on both accel and decel buttons
+      if b.type in ["accelCruise", "decelCruise"] and not b.pressed:
+        events.append(create_event('buttonEnable', [ET.ENABLE]))
+
+      # do disable on button down
+      if b.type == "cancel" and b.pressed:
+        events.append(create_event('buttonCancel', [ET.USER_DISABLE]))
+
+    ret.events = events
+
+    # update previous brake/gas pressed
+    self.gas_pressed_prev = ret.gasPressed
+    self.brake_pressed_prev = ret.brakePressed
 
     # cast to reader so it can't be modified
     return ret.as_reader()
@@ -208,18 +263,11 @@ class CarInterface(object):
       "chimeRepeated": (CM.LOW_CHIME, -1),
       "chimeContinuous": (CM.LOW_CHIME, -1)}[str(c.hudControl.audibleAlert)]
 
-    pcm_accel = int(np.clip(c.cruiseControl.accelOverride/1.4,0,1)*0xc6)
-
     self.CC.update(self.sendcan, c.enabled, self.CS, self.frame, \
-      c.gas, c.brake, c.steeringTorque, \
-      c.cruiseControl.speedOverride, \
-      c.cruiseControl.override, \
-      c.cruiseControl.cancel, \
-      pcm_accel, \
+      c.actuators,
       hud_v_cruise, c.hudControl.lanesVisible, \
       c.hudControl.leadVisible, \
       chime, chime_count)
 
     self.frame += 1
-    return not (c.enabled and not self.CC.controls_allowed)
 

@@ -32,22 +32,28 @@
 
 #include "cereal/gen/c/log.capnp.h"
 
+// Calibration status values from controlsd.py
+#define CALIBRATION_UNCALIBRATED 0
+#define CALIBRATION_CALIBRATED 1
+#define CALIBRATION_INVALID 2
+
 #define UI_BUF_COUNT 4
 
 typedef struct UIScene {
   int frontview;
 
   uint8_t *bgr_ptr;
-  int big_box_x, big_box_y, big_box_width, big_box_height;
 
   int transformed_width, transformed_height;
 
   uint64_t model_ts;
   ModelData model;
 
+  float mpc_x[50];
+  float mpc_y[50];
+
   bool world_objects_visible;
-  // TODO(mgraczyk): Remove and use full frame for everything.
-  mat3 warp_matrix;           // transformed box -> big_box.
+  mat3 warp_matrix;           // transformed box -> frame.
   mat4 extrinsic_matrix;      // Last row is 0 so we can use mat4.
 
   float v_cruise;
@@ -66,6 +72,10 @@ typedef struct UIScene {
   char alert_text2[1024];
 
   float awareness_status;
+
+  // Used to display calibration progress
+  int cal_status;
+  int cal_perc;
 } UIScene;
 
 typedef struct UIState {
@@ -88,14 +98,16 @@ typedef struct UIState {
   void *livecalibration_sock_raw;
   zsock_t *live20_sock;
   void *live20_sock_raw;
+  zsock_t *livempc_sock;
+  void *livempc_sock_raw;
 
   // vision state
   bool vision_connected;
   bool vision_connect_firstrun;
   int ipc_fd;
 
-  VisionBuf bufs[UI_BUF_COUNT];
-  VisionBuf front_bufs[UI_BUF_COUNT];
+  VIPCBuf bufs[UI_BUF_COUNT];
+  VIPCBuf front_bufs[UI_BUF_COUNT];
   int cur_vision_idx;
   int cur_vision_front_idx;
 
@@ -124,6 +136,7 @@ typedef struct UIState {
   int awake_timeout;
 
   bool is_metric;
+  bool passive;
 } UIState;
 
 static void set_awake(UIState *s, bool awake) {
@@ -228,6 +241,11 @@ static void ui_init(UIState *s) {
   assert(s->live20_sock);
   s->live20_sock_raw = zsock_resolve(s->live20_sock);
 
+  s->livempc_sock = zsock_new_sub(">tcp://127.0.0.1:8035", "");
+  assert(s->livempc_sock);
+  s->livempc_sock_raw = zsock_resolve(s->livempc_sock);
+
+
   s->ipc_fd = -1;
 
   // init display
@@ -264,6 +282,15 @@ static void ui_init(UIState *s) {
   glDisable(GL_DEPTH_TEST);
 
   assert(glGetError() == GL_NO_ERROR);
+
+  {
+    char *value;
+    const int result = read_db_value(NULL, "Passive", &value, NULL);
+    if (result == 0) {
+      s->passive = value[0] == '1';
+      free(value);
+    }
+  }
 }
 
 
@@ -271,8 +298,7 @@ static void ui_init(UIState *s) {
 // intrinsic_matrix and returns true.  Otherwise returns false.
 static bool try_load_intrinsics(mat3 *intrinsic_matrix) {
   char *value;
-  const int result =
-      read_db_value("/data/params", "CloudCalibration", &value, NULL);
+  const int result = read_db_value(NULL, "CloudCalibration", &value, NULL);
 
   if (result == 0) {
     JsonNode* calibration_json = json_decode(value);
@@ -287,7 +313,7 @@ static bool try_load_intrinsics(mat3 *intrinsic_matrix) {
     }
 
     int i = 0;
-    JsonNode* json_num; 
+    JsonNode* json_num;
     json_foreach(json_num, intrinsic_json) {
       intrinsic_matrix->v[i++] = json_num->number_;
     }
@@ -309,18 +335,15 @@ static void ui_init_vision(UIState *s, const VisionStreamBufs back_bufs,
   assert(num_back_fds == UI_BUF_COUNT);
   assert(num_front_fds == UI_BUF_COUNT);
 
-  visionbufs_load(s->bufs, &back_bufs, num_back_fds, back_fds);
-  visionbufs_load(s->front_bufs, &front_bufs, num_front_fds, front_fds);
+  vipc_bufs_load(s->bufs, &back_bufs, num_back_fds, back_fds);
+  vipc_bufs_load(s->front_bufs, &front_bufs, num_front_fds, front_fds);
 
   s->cur_vision_idx = -1;
   s->cur_vision_front_idx = -1;
 
   s->scene = (UIScene){
       .frontview = 0,
-      .big_box_x = ui_info.big_box_x,
-      .big_box_y = ui_info.big_box_y,
-      .big_box_width = ui_info.big_box_width,
-      .big_box_height = ui_info.big_box_height,
+      .cal_status = CALIBRATION_CALIBRATED,
       .transformed_width = ui_info.transformed_width,
       .transformed_height = ui_info.transformed_height,
       .front_box_x = ui_info.front_box_x,
@@ -344,7 +367,7 @@ static void ui_init_vision(UIState *s, const VisionStreamBufs back_bufs,
   }};
 
   char *value;
-  const int result = read_db_value("/data/params", "IsMetric", &value, NULL);
+  const int result = read_db_value(NULL, "IsMetric", &value, NULL);
   if (result == 0) {
     s->is_metric = value[0] == '1';
     free(value);
@@ -392,9 +415,8 @@ static void ui_draw_transformed_box(UIState *s, uint32_t color) {
   };
 
   for (int i=0; i<ARRAYSIZE(verts); i++) {
-    verts[i].pos.v[0] = scene->big_box_x + verts[i].pos.v[0] / verts[i].pos.v[2];
-    verts[i].pos.v[1] = s->rgb_height - (scene->big_box_y +
-                                         verts[i].pos.v[1] / verts[i].pos.v[2]);
+    verts[i].pos.v[0] = verts[i].pos.v[0] / verts[i].pos.v[2];
+    verts[i].pos.v[1] = s->rgb_height - verts[i].pos.v[1] / verts[i].pos.v[2];
   }
 
   glUseProgram(s->line_program);
@@ -465,6 +487,51 @@ static void draw_cross(UIState *s, float x_in, float y_in, float sz, NVGcolor co
 
     nvgStroke(s->vg);
   }
+
+  nvgRestore(s->vg);
+}
+
+static void draw_x_y(UIState *s, const float *x_coords, const float *y_coords, size_t num_points,
+                      NVGcolor color) {
+  const UIScene *scene = &s->scene;
+
+  nvgSave(s->vg);
+
+  // path coords are worked out in rgb-box space
+  nvgTranslate(s->vg, 240.0f, 0.0);
+
+  // zooom in 2x
+  nvgTranslate(s->vg, -1440.0f / 2, -1080.0f / 2);
+  nvgScale(s->vg, 2.0, 2.0);
+
+  nvgScale(s->vg, 1440.0f / s->rgb_width, 1080.0f / s->rgb_height);
+
+  nvgBeginPath(s->vg);
+  nvgStrokeColor(s->vg, color);
+  nvgStrokeWidth(s->vg, 2);
+  bool started = false;
+
+  for (int i=0; i<num_points; i++) {
+    float px = x_coords[i];
+    float py = y_coords[i];
+    vec4 p_car_space = (vec4){{px, py, 0., 1.}};
+    vec3 p_full_frame = car_space_to_full_frame(s, p_car_space);
+
+    float x = p_full_frame.v[0];
+    float y = p_full_frame.v[1];
+    if (x < 0 || y < 0.) {
+      continue;
+    }
+
+    if (!started) {
+      nvgMoveTo(s->vg, x, y);
+      started = true;
+    } else {
+      nvgLineTo(s->vg, x, y);
+    }
+  }
+
+  nvgStroke(s->vg);
 
   nvgRestore(s->vg);
 }
@@ -609,7 +676,7 @@ static void draw_frame(UIState *s) {
  * Draw a rect at specific position with specific dimensions
  */
 static void ui_draw_rounded_rect(
-    NVGcontext* c, 
+    NVGcontext* c,
     int x,
     int y,
     int width,
@@ -644,43 +711,29 @@ static void ui_draw_world(UIState *s) {
     return;
   }
 
-  /******************************************
-   * Add background rect so it's easier to see in 
-   * light background scenes 
-   ******************************************/
-  // Draw background around speed text
-
-  // Left side
-  ui_draw_rounded_rect(s->vg, -15, 0, 570, 180, 20, nvgRGBA(10,10,10,170));
-
-  // Right side
-  ui_draw_rounded_rect(s->vg, 1920-530, 0, 150, 180, 20, nvgRGBA(10,10,10,170));
-  /******************************************/
-
   draw_steering(s, scene->v_ego, scene->angle_steers);
 
-  // draw paths
   if ((nanos_since_boot() - scene->model_ts) < 1000000000ULL) {
-    draw_path(s, scene->model.path.points, 0.0f, nvgRGBA(128, 0, 255, 255));
-
     draw_model_path(
         s, scene->model.left_lane,
         nvgRGBA(0, (int)(255 * scene->model.left_lane.prob), 0, 128));
     draw_model_path(
         s, scene->model.right_lane,
         nvgRGBA(0, (int)(255 * scene->model.right_lane.prob), 0, 128));
+
+    // draw paths
+    if (!s->passive) {
+      draw_path(s, scene->model.path.points, 0.0f, nvgRGBA(128, 0, 255, 255));
+
+      draw_x_y(s, &scene->mpc_x[1], &scene->mpc_y[1], 49, nvgRGBA(255, 0, 0, 255));
+    }
   }
 
   if (scene->lead_status) {
     char radar_str[16];
 
-    /******************************************
-     * Add background rect so it's easier to see in 
-     * light background scenes 
-     ******************************************/
     // Draw background for radar text
     ui_draw_rounded_rect(s->vg, 578, 0, 195, 180, 20, nvgRGBA(10,10,10,170));
-    /******************************************/
 
     if (s->is_metric) {
       int lead_v_rel = (int)(3.6 * scene->lead_v_rel);
@@ -731,35 +784,47 @@ static void ui_draw_vision(UIState *s) {
     float defaultfontsize = 128.0f;
     float labelfontsize = 65.0f;
 
-    if (scene->engaged) {
-      nvgFillColor(s->vg, nvgRGBA(255, 128, 0, 192));
+    if (!s->passive) {
 
-      // Add label
-      nvgFontSize(s->vg, labelfontsize);
-      nvgTextAlign(s->vg, NVG_ALIGN_LEFT | NVG_ALIGN_BASELINE);
-      nvgText(s->vg, 20, 175-30, "OpenPilot: On", NULL);
-    } else {
-      nvgFillColor(s->vg, nvgRGBA(195, 195, 195, 192));
+      // background
+      ui_draw_rounded_rect(s->vg, -15, 0, 570, 180, 20, nvgRGBA(10,10,10,170));
 
-      // Add label
-      nvgFontSize(s->vg, labelfontsize);
-      nvgTextAlign(s->vg, NVG_ALIGN_LEFT | NVG_ALIGN_BASELINE);
-      nvgText(s->vg, 20, 175-30, "OpenPilot: Off", NULL);
-    }
+      if (scene->engaged) {
+        nvgFillColor(s->vg, nvgRGBA(255, 128, 0, 192));
 
-    nvgFontSize(s->vg, defaultfontsize);
-    if (scene->v_cruise != 255 && scene->v_cruise != 0) {
-      if (s->is_metric) {
-        snprintf(speed_str, sizeof(speed_str), "%3d KPH",
-                 (int)(scene->v_cruise + 0.5));
+        // Add label
+        nvgFontSize(s->vg, labelfontsize);
+        nvgTextAlign(s->vg, NVG_ALIGN_LEFT | NVG_ALIGN_BASELINE);
+        nvgText(s->vg, 20, 175-30, "OpenPilot: On", NULL);
       } else {
-        // Convert KPH to MPH.
-        snprintf(speed_str, sizeof(speed_str), "%3d MPH",
-                 (int)(scene->v_cruise * 0.621371 + 0.5));
+        nvgFillColor(s->vg, nvgRGBA(195, 195, 195, 192));
+
+        // Add label
+        nvgFontSize(s->vg, labelfontsize);
+        nvgTextAlign(s->vg, NVG_ALIGN_LEFT | NVG_ALIGN_BASELINE);
+        nvgText(s->vg, 20, 175-30, "OpenPilot: Off", NULL);
       }
-      nvgTextAlign(s->vg, NVG_ALIGN_RIGHT | NVG_ALIGN_BASELINE);
-      nvgText(s->vg, 480, 95, speed_str, NULL);
+
+      nvgFontSize(s->vg, defaultfontsize);
+      if (scene->v_cruise != 255 && scene->v_cruise != 0) {
+        if (s->is_metric) {
+          snprintf(speed_str, sizeof(speed_str), "%3d KPH",
+                   (int)(scene->v_cruise + 0.5));
+        } else {
+          /* Convert KPH to MPH. Using an approximated mph to kph
+          conversion factor of 1.609 because this is what the Honda
+          hud seems to be using */
+          snprintf(speed_str, sizeof(speed_str), "%3d MPH",
+                   (int)(scene->v_cruise * 0.621504 + 0.5));
+        }
+        nvgTextAlign(s->vg, NVG_ALIGN_RIGHT | NVG_ALIGN_BASELINE);
+        nvgText(s->vg, 480, 95, speed_str, NULL);
+      }
     }
+
+
+    // speed background
+    ui_draw_rounded_rect(s->vg, 1920-530, 0, 150, 180, 20, nvgRGBA(10,10,10,170));
 
     // Add label
     nvgFontSize(s->vg, labelfontsize);
@@ -792,6 +857,25 @@ static void ui_draw_vision(UIState *s) {
                                   255 * scene->awareness_status, 0, 128));
       nvgFill(s->vg);
     }
+
+    // Draw calibration progress (if needed)
+    if (scene->cal_status == CALIBRATION_UNCALIBRATED) {
+      int rec_width = 1020;
+      int x_pos = 470;
+      nvgBeginPath(s->vg);
+      nvgStrokeWidth(s->vg, 14);
+      nvgRoundedRect(s->vg, (1920-rec_width)/2, 970, rec_width, 100, 20);
+      nvgStroke(s->vg);
+      nvgFillColor(s->vg, nvgRGBA(10,100,220,180));
+      nvgFill(s->vg);
+
+      nvgFontSize(s->vg, labelfontsize);
+      nvgTextAlign(s->vg, NVG_ALIGN_LEFT | NVG_ALIGN_BASELINE);
+      nvgFillColor(s->vg, nvgRGBA(255, 255, 255, 220));
+      char calib_status_str[32];
+      snprintf(calib_status_str, sizeof(calib_status_str), "Calibration In Progress: %d%%", scene->cal_perc);
+      nvgText(s->vg, x_pos, 1040, calib_status_str, NULL);
+    }
   }
 
   nvgEndFrame(s->vg);
@@ -812,7 +896,7 @@ static void ui_draw_alerts(UIState *s) {
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
   glClear(GL_STENCIL_BUFFER_BIT);
-  
+
   nvgBeginFrame(s->vg, s->fb_w, s->fb_h, 1.0f);
 
   // draw alert text
@@ -937,7 +1021,7 @@ static void ui_update(UIState *s) {
 
   // poll for events
   while (true) {
-    zmq_pollitem_t polls[5] = {{0}};
+    zmq_pollitem_t polls[6] = {{0}};
     polls[0].socket = s->live100_sock_raw;
     polls[0].events = ZMQ_POLLIN;
     polls[1].socket = s->livecalibration_sock_raw;
@@ -946,14 +1030,18 @@ static void ui_update(UIState *s) {
     polls[2].events = ZMQ_POLLIN;
     polls[3].socket = s->live20_sock_raw;
     polls[3].events = ZMQ_POLLIN;
+    polls[4].socket = s->livempc_sock_raw;
+    polls[4].events = ZMQ_POLLIN;
 
-    int num_polls = 4;
+    int num_polls = 5;
     if (s->vision_connected) {
       assert(s->ipc_fd >= 0);
-      polls[4].fd = s->ipc_fd;
-      polls[4].events = ZMQ_POLLIN;
+      polls[5].fd = s->ipc_fd;
+      polls[5].events = ZMQ_POLLIN;
       num_polls++;
     }
+
+
 
     int ret = zmq_poll(polls, num_polls, 0);
     if (ret < 0) {
@@ -967,7 +1055,7 @@ static void ui_update(UIState *s) {
     // awake on any activity
     set_awake(s, true);
 
-    if (s->vision_connected && polls[4].revents) {
+    if (s->vision_connected && polls[5].revents) {
       // vision ipc event
       VisionPacket rp;
       err = vipc_recv(s->ipc_fd, &rp);
@@ -1019,7 +1107,7 @@ static void ui_update(UIState *s) {
     } else {
       // zmq messages
       void* which = NULL;
-      for (int i=0; i<4; i++) {
+      for (int i=0; i<5; i++) {
         if (polls[i].revents) {
           which = polls[i].socket;
           break;
@@ -1082,8 +1170,11 @@ static void ui_update(UIState *s) {
         struct cereal_LiveCalibrationData datad;
         cereal_read_LiveCalibrationData(&datad, eventd.liveCalibration);
 
+        s->scene.cal_status = datad.calStatus;
+        s->scene.cal_perc = datad.calPerc;
+
         // should we still even have this?
-        capn_list32 warpl = datad.warpMatrix;
+        capn_list32 warpl = datad.warpMatrix2;
         capn_resolve(&warpl.p);  // is this a bug?
         for (int i = 0; i < 3 * 3; i++) {
           s->scene.warp_matrix.v[i] = capn_to_f32(capn_get32(warpl, i));
@@ -1098,6 +1189,23 @@ static void ui_update(UIState *s) {
       } else if (eventd.which == cereal_Event_model) {
         s->scene.model_ts = eventd.logMonoTime;
         s->scene.model = read_model(eventd.model);
+      } else if (eventd.which == cereal_Event_liveMpc) {
+        struct cereal_LiveMpcData datad;
+        cereal_read_LiveMpcData(&datad, eventd.liveMpc);
+
+        capn_list32 x_list = datad.x;
+        capn_resolve(&x_list.p);
+
+        for (int i = 0; i < 50; i++){
+          s->scene.mpc_x[i] = capn_to_f32(capn_get32(x_list, i));
+        }
+
+        capn_list32 y_list = datad.y;
+        capn_resolve(&y_list.p);
+
+        for (int i = 0; i < 50; i++){
+          s->scene.mpc_y[i] = capn_to_f32(capn_get32(y_list, i));
+        }
       }
 
       capn_free(&ctx);
@@ -1202,7 +1310,7 @@ int main() {
 
   while (!do_exit) {
     pthread_mutex_lock(&s->lock);
-    
+
     ui_update(s);
     if (s->awake) {
       ui_draw(s);

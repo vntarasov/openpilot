@@ -18,7 +18,7 @@
 #include <capnp/serialize.h>
 #include "cereal/gen/cpp/log.capnp.h"
 
-#include "parser_common.h"
+#include "common.h"
 
 #define DEBUG(...)
 // #define DEBUG printf
@@ -40,51 +40,57 @@ uint64_t read_u64_be(const uint8_t* v) {
           | (uint64_t)v[7]);
 }
 
-std::vector<const DBC*> g_dbc;
-
-bool honda_checksum(int address, uint64_t d, int l) {
-  int target = (d >> l) & 0xF;
-
-  DEBUG("check checksum %16lx %d", d, l);
-
-  // remove checksum from calculation
-  d &= ~(0xFLL << l);
+unsigned int honda_checksum(unsigned int address, uint64_t d, int l) {
+  d >>= ((8-l)*8); // remove padding
+  d >>= 4; // remove checksum
 
   int s = 0;
-  while (address > 0) { s += (address & 0xF); address >>= 4; }
-  while (d > 0) { s += (d & 0xF); d >>= 4; }
+  while (address) { s += (address & 0xF); address >>= 4; }
+  while (d) { s += (d & 0xF); d >>= 4; }
   s = 8-s;
   s &= 0xF;
 
-  DEBUG("   %d = %d\n", target, s);
-  return target == s;
+  return s;
+}
+
+unsigned int toyota_checksum(unsigned int address, uint64_t d, int l) {
+  d >>= ((8-l)*8); // remove padding
+  d >>= 8; // remove checksum
+
+  unsigned int s = l;
+  while (address) { s += address & 0xff; address >>= 8; }
+  while (d) { s += d & 0xff; d >>= 8; }
+  
+  return s & 0xFF;
 }
 
 struct MessageState {
   uint32_t address;
+  unsigned int size;
 
   std::vector<Signal> parse_sigs;
   std::vector<double> vals;
 
+  uint16_t ts;
   uint64_t seen;
   uint64_t check_threshold;
 
   uint8_t counter;
   uint8_t counter_fail;
 
-  bool parse(uint64_t sec, uint64_t dat) {
+  bool parse(uint64_t sec, uint16_t ts_, uint64_t dat) {
     for (int i=0; i < parse_sigs.size(); i++) {
       auto& sig = parse_sigs[i];
 
-      int64_t tmp = (dat >> sig.bo) & ((1 << sig.b2)-1);
+      int64_t tmp = (dat >> sig.bo) & ((1ULL << sig.b2)-1);
       if (sig.is_signed) {
-        tmp -= (tmp >> (sig.b2-1)) ? (1<<sig.b2) : 0; //signed
+        tmp -= (tmp >> (sig.b2-1)) ? (1ULL << sig.b2) : 0; //signed
       }
 
-      DEBUG("parse %X %s -> %ld\n", address, sig.name, tmp);
+      DEBUG("parse %X %s -> %lld\n", address, sig.name, tmp);
 
       if (sig.type == SignalType::HONDA_CHECKSUM) {
-        if (!honda_checksum(address, dat, sig.bo)) {
+        if (honda_checksum(address, dat, size) != tmp) {
           INFO("%X CHECKSUM FAIL\n", address);
           return false;
         }
@@ -92,10 +98,18 @@ struct MessageState {
         if (!honda_update_counter(tmp)) {
           return false;
         }
+      } else if (sig.type == SignalType::TOYOTA_CHECKSUM) {
+        // DEBUG("CHECKSUM %d %d %018llX - %lld vs %d\n", address, size, dat, tmp, toyota_checksum(address, dat, size));
+
+        if (toyota_checksum(address, dat, size) != tmp) {
+          INFO("%X CHECKSUM FAIL\n", address);
+          return false;
+        }
       }
 
       vals[i] = tmp * sig.factor + sig.offset;
     }
+    ts = ts_;
     seen = sec;
 
     return true;
@@ -121,6 +135,7 @@ struct MessageState {
 
 };
 
+
 class CANParser {
  public:
   CANParser(int abus, const std::string& dbc_name,
@@ -133,15 +148,10 @@ class CANParser {
     zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
     zmq_connect(subscriber, "tcp://127.0.0.1:8006");
 
-    for (auto dbci : g_dbc) {
-      if (dbci->name == dbc_name) {
-        dbc = dbci;
-        break;
-      }
-    }
+    dbc = dbc_lookup(dbc_name);
     assert(dbc);
 
-    for (auto &op : options) {
+    for (const auto& op : options) {
       MessageState state = {
         .address = op.address,
         // .check_frequency = op.check_frequency,
@@ -165,25 +175,25 @@ class CANParser {
         assert(false);
       }
 
-      // track checksums and for this message
+      state.size = msg->size;
+
+      // track checksums and counters for this message
       for (int i=0; i<msg->num_sigs; i++) {
         const Signal *sig = &msg->sigs[i];
-        if (sig->type == HONDA_CHECKSUM
-            || sig->type == HONDA_COUNTER) {
+        if (sig->type != SignalType::DEFAULT) {
           state.parse_sigs.push_back(*sig);
           state.vals.push_back(0);
         }
       }
 
       // track requested signals for this message
-      for (auto &sigop : sigoptions) {
+      for (const auto& sigop : sigoptions) {
         if (sigop.address != op.address) continue;
 
         for (int i=0; i<msg->num_sigs; i++) {
           const Signal *sig = &msg->sigs[i];
           if (strcmp(sig->name, sigop.name) == 0
-              && sig->type != HONDA_CHECKSUM
-              && sig->type != HONDA_COUNTER) {
+              && sig->type == SignalType::DEFAULT) {
             state.parse_sigs.push_back(*sig);
             state.vals.push_back(sigop.default_value);
             break;
@@ -220,16 +230,16 @@ class CANParser {
 
         uint64_t p = read_u64_be(dat);
 
-        DEBUG("  proc %X: %lx\n", cmsg.getAddress(), p);
+        DEBUG("  proc %X: %llx\n", cmsg.getAddress(), p);
 
-        state_it->second.parse(sec, p);
+        state_it->second.parse(sec, cmsg.getBusTime(), p);
       }
   }
 
   void UpdateValid(uint64_t sec) {
     can_valid = true;
-    for (auto &kv : message_states) {
-      auto &state = kv.second;
+    for (const auto& kv : message_states) {
+      const auto& state = kv.second;
       if (state.check_threshold > 0 && (sec - state.seen) > state.check_threshold) {
         if (state.seen > 0) {
           INFO("%X TIMEOUT\n", state.address);
@@ -277,14 +287,15 @@ class CANParser {
   std::vector<SignalValue> query(uint64_t sec) {
     std::vector<SignalValue> ret;
 
-    for (auto &kv : message_states) {
-      auto &state = kv.second;
+    for (const auto& kv : message_states) {
+      const auto& state = kv.second;
       if (sec != 0 && state.seen != sec) continue;
       
       for (int i=0; i<state.parse_sigs.size(); i++) {
         const Signal &sig = state.parse_sigs[i];
         ret.push_back((SignalValue){
           .address = state.address,
+          .ts = state.ts,
           .name = sig.name,
           .value = state.vals[i],
         });
@@ -306,10 +317,6 @@ class CANParser {
   std::unordered_map<uint32_t, MessageState> message_states;
 };
 
-}
-
-void dbc_register(const DBC* dbc) {
-  g_dbc.push_back(dbc);
 }
 
 extern "C" {

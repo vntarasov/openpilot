@@ -53,15 +53,17 @@ class CarController(object):
     # redundant safety check with the board
     self.controls_allowed = False
 
-  def update(self, sendcan, enabled, CS, frame, final_gas, final_brake, final_steer, \
-             pcm_speed, pcm_override, pcm_cancel_cmd, pcm_accel, \
+  def update(self, sendcan, enabled, CS, frame, actuators, \
              hud_v_cruise, hud_show_lanes, hud_show_car, chime, chime_cnt):
     """ Controls thread """
 
     # *** apply brake hysteresis ***
-    final_brake, self.braking, self.brake_steady = actuator_hystereses(final_brake, self.braking, self.brake_steady, CS.v_ego, False)
+    final_brake, self.braking, self.brake_steady = actuator_hystereses(
+      actuators.brake, self.braking, self.brake_steady, CS.v_ego, False)
 
     # no output if not enabled, but keep sending keepalive messages
+    final_gas = actuators.gas
+    final_steer = actuators.steer
     if not enabled:
       final_gas = 0.
       final_brake = 0.

@@ -4,23 +4,21 @@ import zmq
 import numpy as np
 import numpy.matlib
 from collections import defaultdict
-
 from fastcluster import linkage_vector
-
 import selfdrive.messaging as messaging
 from selfdrive.services import service_list
-from selfdrive.controls.lib.latcontrol import calc_lookahead_offset
+from selfdrive.controls.lib.latcontrol_helpers import calc_lookahead_offset
 from selfdrive.controls.lib.pathplanner import PathPlanner
-from selfdrive.controls.lib.radar_helpers import Track, Cluster, fcluster, RDR_TO_LDR
+from selfdrive.controls.lib.radar_helpers import Track, Cluster, fcluster, \
+                                                 RDR_TO_LDR, NO_FUSION_SCORE
+from selfdrive.controls.lib.vehicle_model import VehicleModel
 from selfdrive.swaglog import cloudlog
-
 from cereal import car
-
 from common.params import Params
 from common.realtime import sec_since_boot, set_realtime_priority, Ratekeeper
 from common.kalman.ekf import EKF, SimpleSensor
 
-VISION_ONLY = False
+DEBUG = False
 
 #vision point
 DIMSV = 2
@@ -51,6 +49,7 @@ def radard_thread(gctx=None):
   # wait for stats about the car to come in from controls
   cloudlog.info("radard is waiting for CarParams")
   CP = car.CarParams.from_bytes(Params().get("CarParams", block=True))
+  VM = VehicleModel(CP)
   cloudlog.info("radard got CarParams")
 
   # import the radar from the fingerprint
@@ -78,15 +77,15 @@ def radard_thread(gctx=None):
   # Time-alignment
   rate = 20.   # model and radar are both at 20Hz
   tsv = 1./rate
-  rdr_delay = 0.10   # radar data delay in s
   v_len = 20         # how many speed data points to remember for t alignment with rdr data
 
-  enabled = 0
+  active = 0
   steer_angle = 0.
+  steer_override = False
 
   tracks = defaultdict(dict)
 
-  # Kalman filter stuff: 
+  # Kalman filter stuff:
   ekfv = EKFV1D()
   speedSensorV = SimpleSensor(XV, 1, 2)
 
@@ -97,18 +96,20 @@ def radard_thread(gctx=None):
 
   rk = Ratekeeper(rate, print_delay_threshold=np.inf)
   while 1:
+
     rr = RI.update()
 
     ar_pts = {}
     for pt in rr.points:
-      ar_pts[pt.trackId] = [pt.dRel + RDR_TO_LDR, pt.yRel, pt.vRel, pt.aRel, None, False, None]
+      ar_pts[pt.trackId] = [pt.dRel + RDR_TO_LDR, pt.yRel, pt.vRel, pt.measured]
 
     # receive the live100s
     l100 = messaging.recv_sock(live100)
     if l100 is not None:
-      enabled = l100.live100.enabled
+      active = l100.live100.active
       v_ego = l100.live100.vEgo
       steer_angle = l100.live100.angleSteers
+      steer_override = l100.live100.steerOverride
 
       v_ego_array = np.append(v_ego_array, [[v_ego], [float(rk.frame)/rate]], 1)
       v_ego_array = v_ego_array[:, 1:]
@@ -123,14 +124,14 @@ def radard_thread(gctx=None):
       last_md_ts = md.logMonoTime
 
     # *** get path prediction from the model ***
-    PP.update(sec_since_boot(), v_ego, md)
+    PP.update(v_ego, md)
 
     # run kalman filter only if prob is high enough
     if PP.lead_prob > 0.7:
       ekfv.update(speedSensorV.read(PP.lead_dist, covar=PP.lead_var))
       ekfv.predict(tsv)
       ar_pts[VISION_POINT] = (float(ekfv.state[XV]), np.polyval(PP.d_poly, float(ekfv.state[XV])),
-                              float(ekfv.state[SPEEDV]), np.nan, last_md_ts, np.nan, sec_since_boot())
+                              float(ekfv.state[SPEEDV]), False)
     else:
       ekfv.state[XV] = PP.lead_dist
       ekfv.covar = (np.diag([PP.lead_var, ekfv.var_init]))
@@ -139,10 +140,10 @@ def radard_thread(gctx=None):
         del ar_pts[VISION_POINT]
 
     # *** compute the likely path_y ***
-    if enabled:    # use path from model path_poly
+    if active and not steer_override:    # use path from model path_poly
       path_y = np.polyval(PP.d_poly, path_x)
     else:          # use path from steer, set angle_offset to 0 since calibration does not exactly report the physical offset
-      path_y = calc_lookahead_offset(v_ego, steer_angle, path_x, CP, angle_offset=0)[0]
+      path_y = calc_lookahead_offset(v_ego, steer_angle, path_x, VM, angle_offset=0)[0]
 
     # *** remove missing points from meta data ***
     for ids in tracks.keys():
@@ -152,32 +153,56 @@ def radard_thread(gctx=None):
     # *** compute the tracks ***
     for ids in ar_pts:
       # ignore the vision point for now
-      if ids == VISION_POINT and not VISION_ONLY:
-        continue
-      elif ids != VISION_POINT and VISION_ONLY:
+      if ids == VISION_POINT:
         continue
       rpt = ar_pts[ids]
 
-      # align v_ego by a fixed time to align it with the radar measurement     
+      # align v_ego by a fixed time to align it with the radar measurement
       cur_time = float(rk.frame)/rate
-      v_ego_t_aligned = np.interp(cur_time - rdr_delay, v_ego_array[1], v_ego_array[0])
+      v_ego_t_aligned = np.interp(cur_time - RI.delay, v_ego_array[1], v_ego_array[0])
       d_path = np.sqrt(np.amin((path_x - rpt[0]) ** 2 + (path_y - rpt[1]) ** 2))
+      # add sign
+      d_path *= np.sign(rpt[1] - np.interp(rpt[0], path_x, path_y))
 
       # create the track if it doesn't exist or it's a new track
-      if ids not in tracks or rpt[5] == 1:
+      if ids not in tracks:
         tracks[ids] = Track()
-      tracks[ids].update(rpt[0], rpt[1], rpt[2], d_path, v_ego_t_aligned)
+      tracks[ids].update(rpt[0], rpt[1], rpt[2], d_path, v_ego_t_aligned, rpt[3], steer_override)
 
-      # allow the vision model to remove the stationary flag if distance and rel speed roughly match
-      if VISION_POINT in ar_pts:
-        dist_to_vision = np.sqrt((0.5*(ar_pts[VISION_POINT][0] - rpt[0])) ** 2 + (2*(ar_pts[VISION_POINT][1] - rpt[1])) ** 2)
-        rel_speed_diff = abs(ar_pts[VISION_POINT][2] - rpt[2])
-        tracks[ids].mix_vision(dist_to_vision, rel_speed_diff)
+    # allow the vision model to remove the stationary flag if distance and rel speed roughly match
+    if VISION_POINT in ar_pts:
+      fused_id = None
+      best_score = NO_FUSION_SCORE
+      for ids in tracks:
+        dist_to_vision = np.sqrt((0.5*(ar_pts[VISION_POINT][0] - tracks[ids].dRel)) ** 2 + (2*(ar_pts[VISION_POINT][1] - tracks[ids].yRel)) ** 2)
+        rel_speed_diff = abs(ar_pts[VISION_POINT][2] - tracks[ids].vRel)
+        tracks[ids].update_vision_score(dist_to_vision, rel_speed_diff)
+        if best_score > tracks[ids].vision_score:
+          fused_id = ids
+          best_score = tracks[ids].vision_score
+
+      if fused_id is not None:
+        tracks[fused_id].vision_cnt += 1
+        tracks[fused_id].update_vision_fusion()
+
 
     # publish tracks (debugging)
     dat = messaging.new_message()
     dat.init('liveTracks', len(tracks))
+
+    if DEBUG:
+      print "NEW CYCLE"
+      if VISION_POINT in ar_pts:
+        print "vision", ar_pts[VISION_POINT]
+
     for cnt, ids in enumerate(tracks.keys()):
+      if DEBUG:
+        print "id: %4.0f x:  %4.1f  y: %4.1f  vr: %4.1f d: %4.1f  va: %4.1f  vl: %4.1f  vlk: %4.1f alk: %4.1f  s: %1.0f" % \
+          (ids, tracks[ids].dRel, tracks[ids].yRel, tracks[ids].vRel,
+           tracks[ids].dPath, tracks[ids].vLat, 
+           tracks[ids].vLead, tracks[ids].vLeadK, 
+           tracks[ids].aLeadK, 
+           tracks[ids].stationary)
       dat.liveTracks[cnt].trackId = ids
       dat.liveTracks[cnt].dRel = float(tracks[ids].dRel)
       dat.liveTracks[cnt].yRel = float(tracks[ids].yRel)
@@ -209,6 +234,9 @@ def radard_thread(gctx=None):
     else:
       clusters = []
 
+    if DEBUG:
+      for i in clusters:
+        print i
     # *** extract the lead car ***
     lead_clusters = [c for c in clusters
                      if c.is_potential_lead(v_ego)]
@@ -226,6 +254,7 @@ def radard_thread(gctx=None):
     dat.init('live20')
     dat.live20.mdMonoTime = last_md_ts
     dat.live20.canMonoTimes = list(rr.canMonoTimes)
+    dat.live20.radarErrors = list(rr.errors)
     dat.live20.l100MonoTime = last_l100_ts
     if lead_len > 0:
       lead_clusters[0].toLive20(dat.live20.leadOne)

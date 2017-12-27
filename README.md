@@ -12,7 +12,7 @@ Here are [some](https://www.youtube.com/watch?v=9OwTJFuDI7g) [videos](https://ww
 Hardware
 ------
 
-Right now openpilot supports the [neo research platform](http://github.com/commaai/neo) for vehicle control. We'd like to support other platforms as well.
+Right now openpilot supports the [NEO research platform](http://github.com/commaai/neo) and the [EON Dashcam DevKit](https://shop.comma.ai/products/eon-dashcam-devkit). We'd like to support other platforms as well.
 
 Install openpilot on a neo device by entering ``https://openpilot.comma.ai`` during NEOS setup.
 
@@ -22,11 +22,33 @@ Supported Cars
 - Acura ILX 2016 with AcuraWatch Plus
   - Due to use of the cruise control for gas, it can only be enabled above 25 mph
 
-- Honda Civic 2016 with Honda Sensing
+- Honda Civic 2016-2017 with Honda Sensing
   - Due to limitations in steering firmware, steering is disabled below 12 mph
+  - Note that the hatchback model is not supported
 
-- Honda CR-V Touring 2015-2016 (very alpha!)
+- Honda CR-V Touring 2015-2016
   - Can only be enabled above 25 mph
+
+- Toyota RAV-4 2016+ with TSS-P (alpha!)
+  - By default it uses stock Toyota ACC for longitudinal control
+  - openpilot longitudinal control available after unplugging the [Driving Support ECU](https://community.comma.ai/wiki/index.php/Toyota#Prius_.28for_openpilot.29) and can be enabled above 20 mph
+
+- Toyota Prius 2017 (alpha!)
+  - By default it uses stock Toyota ACC for longitudinal control
+  - openpilot longitudinal control available after unplugging the [Driving Support ECU](https://community.comma.ai/wiki/index.php/Toyota#Rav4_.28for_openpilot.29)
+
+In Progress Cars
+------
+- Probably all TSS-P Toyota with Steering Assist.
+  - 'Full Speed Range Dynamic Radar Cruise Control' is required to enable stop-and-go. Only the Prius, Camry and C-HR have this option.
+  - Even though the Tundra, Sequoia and the Land Cruiser have TSS-P, they don't have Steering Assist and are not supported.
+
+Community WIP Cars
+------
+
+- [Chevy Volt 2016-2018 Premier with Driver Confidence II](https://github.com/commaai/openpilot/pull/104)
+
+- [Classic Tesla Model S (pre-AP)](https://github.com/commaai/openpilot/pull/145)
 
 Directory structure
 ------
@@ -80,7 +102,7 @@ User Data / chffr Account / Crash Reporting
 
 By default openpilot creates an account and includes a client for chffr, our dashcam app. We use your data to train better models and improve openpilot for everyone.
 
-It's open source software, so you are free to disable it if you wish. 
+It's open source software, so you are free to disable it if you wish.
 
 It logs the road facing camera, CAN, GPS, IMU, magnetometer, thermal sensors, crashes, and operating system logs.
 It does not log the user facing camera or the microphone.

@@ -2,6 +2,7 @@ CC = clang
 CXX = clang++
 
 PHONELIBS = ../../phonelibs
+BASEDIR = ../..
 
 WARN_FLAGS = -Werror=implicit-function-declaration \
              -Werror=incompatible-pointer-types \
@@ -38,7 +39,7 @@ logcatd: $(OBJS)
 	@echo "[ CXX ] $@"
 	$(CXX) $(CXXFLAGS) \
            -I$(PHONELIBS)/android_system_core/include \
-           $(CEREAL_CFLAGS) \
+           $(CEREAL_CXXFLAGS) \
            $(ZMQ_FLAGS) \
            -I../ \
            -I../../ \

@@ -12,7 +12,7 @@ int write_db_value(const char* params_path, const char* key, const char* value,
 
 // Reads a value from the params database.
 // Inputs:
-//  params_path: The path of the database, eg /sdcard/params.
+//  params_path: The path of the database, or NULL to use the default.
 //  key: The key to read.
 //  value: A pointer where a newly allocated string containing the db value will
 //         be written.

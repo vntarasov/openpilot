@@ -1,3 +1,42 @@
+Version 0.3.9 (2017-11-21)
+==========================
+ * Add alpha support for 2017 Toyota Prius
+ * Improved longitudinal control using model predictive control
+ * Enable Forward Collision Warning
+ * Acura ILX now maintains openpilot engaged at standstill when brakes are applied
+
+Version 0.3.8.2 (2017-10-30)
+==========================
+ * Add alpha support for 2017 Toyota RAV4
+ * Smoother lateral control
+ * Stay silent if stock system is connected through giraffe
+ * Minor bug fixes
+
+Version 0.3.7 (2017-09-30)
+==========================
+ * Improved lateral control using model predictive control
+ * Improved lane centering
+ * Improved GPS
+ * Reduced tendency of path deviation near right side exits
+ * Enable engagement while the accelerator pedal is pressed
+ * Enable engagement while the brake pedal is pressed, when stationary and with lead vehicle within 5m
+ * Disable engagement when park brake or brake hold are active
+ * Fixed sporadic longitudinal pulsing in Civic
+ * Cleanups to vehicle interface
+
+Version 0.3.6.1 (2017-08-15)
+============================
+ * Mitigate low speed steering oscillations on some vehicles
+ * Include board steering check for CR-V
+
+Version 0.3.6 (2017-08-08)
+==========================
+ * Fix alpha CR-V support
+ * Improved GPS
+ * Fix display of target speed not always matching HUD
+ * Increased acceleration after stop
+ * Mitigated some vehicles driving too close to the right line
+
 Version 0.3.5 (2017-07-30)
 ==========================
  * Fix bug where new devices would not begin calibration
@@ -107,4 +146,3 @@ Version 0.1  (2016-11-29)
   * Lane keep assist is working
   * Support for Acura ILX 2016 with AcuraWatch Plus
   * Support for Honda Civic 2016 Touring Edition
-

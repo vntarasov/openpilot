@@ -1,132 +1,106 @@
 import math
 import numpy as np
-from common.numpy_fast import clip, interp
 
-def calc_curvature(v_ego, angle_steers, CP, angle_offset=0):
-  deg_to_rad = np.pi/180.
-  angle_steers_rad = (angle_steers - angle_offset) * deg_to_rad
-  curvature = angle_steers_rad/(CP.steerRatio * CP.wheelBase * (1. + CP.slipFactor * v_ego**2))
-  return curvature
+from selfdrive.controls.lib.pid import PIController
+from selfdrive.controls.lib.lateral_mpc import libmpc_py
+from common.numpy_fast import interp
+from common.realtime import sec_since_boot
+from selfdrive.swaglog import cloudlog
 
-_K_CURV_V = [1., 0.6]
-_K_CURV_BP = [0., 0.002]
+# 100ms is a rule of thumb estimation of lag from image processing to actuator command
+ACTUATORS_DELAY = 0.2
 
-def calc_d_lookahead(v_ego, d_poly):
-  #*** this function computes how far too look for lateral control
-  # howfar we look ahead is function of speed and how much curvy is the path
-  offset_lookahead = 1.
-  k_lookahead = 7.
-  # integrate abs value of second derivative of poly to get a measure of path curvature
-  pts_len = 50.  # m
-  if len(d_poly)>0:
-    pts = np.polyval([6*d_poly[0], 2*d_poly[1]], np.arange(0, pts_len))
-  else:
-    pts = 0.
-  curv = np.sum(np.abs(pts))/pts_len
+_DT = 0.01    # 100Hz
+_DT_MPC = 0.05  # 20Hz
 
-  k_curv = interp(curv, _K_CURV_BP, _K_CURV_V)
 
-  # sqrt on speed is needed to keep, for a given curvature, the y_offset
-  # proportional to speed. Indeed, y_offset is prop to d_lookahead^2
-  # 36m at 25m/s
-  d_lookahead = offset_lookahead + math.sqrt(max(v_ego, 0)) * k_lookahead * k_curv
-  return d_lookahead
+def calc_states_after_delay(states, v_ego, steer_angle, curvature_factor, steer_ratio):
+  states[0].x = v_ego * ACTUATORS_DELAY
+  states[0].psi = v_ego * curvature_factor * math.radians(steer_angle) / steer_ratio * ACTUATORS_DELAY
+  return states
 
-def calc_lookahead_offset(v_ego, angle_steers, d_lookahead, CP, angle_offset):
-  #*** this function return teh lateral offset given the steering angle, speed and the lookahead distance
-  curvature = calc_curvature(v_ego, angle_steers, CP, angle_offset)
 
-  # clip is to avoid arcsin NaNs due to too sharp turns
-  y_actual = d_lookahead * np.tan(np.arcsin(np.clip(d_lookahead * curvature, -0.999, 0.999))/2.)
-  return y_actual, curvature
+def get_steer_max(CP, v_ego):
+  return interp(v_ego, CP.steerMaxBP, CP.steerMaxV)
 
-def pid_lateral_control(v_ego, y_actual, y_des, Ui_steer, steer_max,
-                        steer_override, sat_count, enabled, Kp, Ki, rate):
-
-  sat_count_rate = 1./rate
-  sat_count_limit = 0.8      # after 0.8s of continuous saturation, an alert will be sent
-
-  error_steer = y_des - y_actual
-  Ui_unwind_speed = 0.3/rate   #.3 per second
-
-  Up_steer = error_steer*Kp
-  Ui_steer_new = Ui_steer + error_steer*Ki * 1./rate
-  output_steer_new = Ui_steer_new + Up_steer
-
-  # Anti-wind up for integrator: do not integrate if we are against the steer limits
-  if (
-    (error_steer >= 0. and (output_steer_new < steer_max or Ui_steer < 0)) or
-    (error_steer <= 0. and
-     (output_steer_new > -steer_max or Ui_steer > 0))) and not steer_override:
-    #update integrator
-    Ui_steer = Ui_steer_new
-  # unwind integrator if driver is maneuvering the steering wheel
-  elif steer_override:
-    Ui_steer -= Ui_unwind_speed * np.sign(Ui_steer)
-
-  # still, intergral term should not be bigger then limits
-  Ui_steer = clip(Ui_steer, -steer_max, steer_max)
-
-  output_steer = Up_steer + Ui_steer
-
-  # don't run steer control if at very low speed
-  if v_ego < 0.3 or not enabled:
-    output_steer = 0.
-    Ui_steer = 0.
-
-  # useful to know if control is against the limit
-  lateral_control_sat = False
-  if abs(output_steer) > steer_max:
-    lateral_control_sat = True
-
-  output_steer = clip(output_steer, -steer_max, steer_max)
-
-  # if lateral control is saturated for a certain period of time, send an alert for taking control of the car
-  # wind
-  if lateral_control_sat and not steer_override and v_ego > 10 and abs(error_steer) > 0.1:
-    sat_count += sat_count_rate
-  # unwind
-  else:
-    sat_count -= sat_count_rate
-
-  sat_flag = False
-  if sat_count >= sat_count_limit:
-    sat_flag = True
-
-  sat_count = clip(sat_count, 0, 1)
-
-  return output_steer, Up_steer, Ui_steer, lateral_control_sat, sat_count, sat_flag
 
 class LatControl(object):
-  def __init__(self):
-    self.Up_steer = 0.
-    self.sat_count = 0
-    self.y_des = 0.0
-    self.lateral_control_sat = False
-    self.Ui_steer = 0.
-    self.reset()
+  def __init__(self, VM):
+    self.pid = PIController(VM.CP.steerKp, VM.CP.steerKi, k_f=VM.CP.steerKf, pos_limit=1.0)
+    self.last_cloudlog_t = 0.0
+    self.setup_mpc()
+
+  def setup_mpc(self):
+    self.libmpc = libmpc_py.libmpc
+    self.libmpc.init()
+
+    self.mpc_solution = libmpc_py.ffi.new("log_t *")
+    self.cur_state = libmpc_py.ffi.new("state_t *")
+    self.mpc_updated = False
+    self.cur_state[0].x = 0.0
+    self.cur_state[0].y = 0.0
+    self.cur_state[0].psi = 0.0
+    self.cur_state[0].delta = 0.0
+
+    self.last_mpc_ts = 0.0
+    self.angle_steers_des = 0.0
+    self.angle_steers_des_mpc = 0.0
+    self.angle_steers_des_prev = 0.0
+    self.angle_steers_des_time = 0.0
 
   def reset(self):
-    self.Ui_steer = 0.
+    self.pid.reset()
 
-  def update(self, enabled, v_ego, angle_steers, steer_override, d_poly, angle_offset, CP):
-    rate = 100
+  def update(self, active, v_ego, angle_steers, steer_override, d_poly, angle_offset, VM, PL):
+    cur_time = sec_since_boot()
+    self.mpc_updated = False
+    if self.last_mpc_ts < PL.last_md_ts:
+      self.last_mpc_ts = PL.last_md_ts
+      self.angle_steers_des_prev = self.angle_steers_des_mpc
 
-    steer_max = 1.0
+      curvature_factor = VM.curvature_factor(v_ego)
 
-    # how far we look ahead is function of speed and desired path
-    d_lookahead = calc_d_lookahead(v_ego, d_poly)
+      l_poly = libmpc_py.ffi.new("double[4]", list(PL.PP.l_poly))
+      r_poly = libmpc_py.ffi.new("double[4]", list(PL.PP.r_poly))
+      p_poly = libmpc_py.ffi.new("double[4]", list(PL.PP.p_poly))
 
-    # calculate actual offset at the lookahead point
-    self.y_actual, _ = calc_lookahead_offset(v_ego, angle_steers,
-                                             d_lookahead, CP, angle_offset)
+      # account for actuation delay
+      self.cur_state = calc_states_after_delay(self.cur_state, v_ego, angle_steers, curvature_factor, VM.CP.steerRatio)
 
-    # desired lookahead offset
-    self.y_des = np.polyval(d_poly, d_lookahead)
+      v_ego_mpc = max(v_ego, 5.0)  # avoid mpc roughness due to low speed
+      self.libmpc.run_mpc(self.cur_state, self.mpc_solution,
+                          l_poly, r_poly, p_poly,
+                          PL.PP.l_prob, PL.PP.r_prob, PL.PP.p_prob, curvature_factor, v_ego_mpc, PL.PP.lane_width)
 
-    output_steer, self.Up_steer, self.Ui_steer, self.lateral_control_sat, self.sat_count, sat_flag = pid_lateral_control(
-      v_ego, self.y_actual, self.y_des, self.Ui_steer, steer_max,
-      steer_override, self.sat_count, enabled, CP.steerKp, CP.steerKi, rate)
+      delta_desired = self.mpc_solution[0].delta[1]
+      self.cur_state[0].delta = delta_desired
 
-    final_steer = clip(output_steer, -steer_max, steer_max)
-    return final_steer, sat_flag
+      self.angle_steers_des_mpc = float(math.degrees(delta_desired * VM.CP.steerRatio) + angle_offset)
+      self.angle_steers_des_time = cur_time
+      self.mpc_updated = True
+
+      #  Check for infeasable MPC solution
+      nans = np.any(np.isnan(list(self.mpc_solution[0].delta)))
+      t = sec_since_boot()
+      if nans:
+        self.libmpc.init()
+        self.cur_state[0].delta = math.radians(angle_steers) / VM.CP.steerRatio
+
+        if t > self.last_cloudlog_t + 5.0:
+          self.last_cloudlog_t = t
+          cloudlog.warning("Lateral mpc - nan: True")
+
+    if v_ego < 0.3 or not active:
+      output_steer = 0.0
+      self.pid.reset()
+    else:
+      dt = min(cur_time - self.angle_steers_des_time, _DT_MPC + _DT) + _DT  # no greater than dt mpc + dt, to prevent too high extraps
+      self.angle_steers_des = self.angle_steers_des_prev + (dt / _DT_MPC) * (self.angle_steers_des_mpc - self.angle_steers_des_prev)
+      steers_max = get_steer_max(VM.CP, v_ego)
+      self.pid.pos_limit = steers_max
+      self.pid.neg_limit = -steers_max
+      steer_feedforward = self.angle_steers_des * v_ego**2  # proportional to realigning tire momentum (~ lateral accel)
+      output_steer = self.pid.update(self.angle_steers_des, angle_steers, check_saturation=(v_ego > 10), override=steer_override, feedforward=steer_feedforward)
+
+    self.sat_flag = self.pid.saturated
+    return output_steer

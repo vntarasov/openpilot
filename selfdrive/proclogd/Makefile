@@ -2,6 +2,7 @@ CC = clang
 CXX = clang++
 
 PHONELIBS = ../../phonelibs
+BASEDIR = ../..
 
 WARN_FLAGS = -Werror=implicit-function-declaration \
              -Werror=incompatible-pointer-types \
@@ -37,7 +38,7 @@ proclogd: $(OBJS)
 %.o: %.cc
 	@echo "[ CXX ] $@"
 	$(CXX) $(CXXFLAGS) \
-           $(CEREAL_CFLAGS) \
+           $(CEREAL_CXXFLAGS) \
            $(ZMQ_FLAGS) \
            -I../ \
            -I../../ \

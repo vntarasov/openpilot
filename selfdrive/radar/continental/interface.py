@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 import numpy as np
-from selfdrive.car.gm.can_parser import CANParser
-from selfdrive.boardd.boardd import can_capnp_to_can_list
+from selfdrive.can.parser import CANParser
 
 from cereal import car
+from common.realtime import sec_since_boot
 
 import zmq
 from selfdrive.services import service_list
@@ -13,11 +13,14 @@ import math
 NUM_TARGETS_MSG = 1120
 SLOT_1_MSG = NUM_TARGETS_MSG + 1
 NUM_SLOTS = 20
-LAST_RADAR_MSG = 0x47f
 
-def _create_radard_can_parser():
+# Actually it's 0x47f, but can parser only reports
+# messages that are present in DBC
+LAST_RADAR_MSG = NUM_TARGETS_MSG + NUM_SLOTS
+
+def create_radard_can_parser():
   # C1A-ARS3-A by Continental
-  dbc_f = 'gm_global_a_object.dbc'
+  dbc_f = 'gm_global_a_object'
   radar_targets = range(SLOT_1_MSG, SLOT_1_MSG + NUM_SLOTS)
   signals = zip(['LRRNumObjects'] +
                 ['TrkRange'] * NUM_SLOTS + ['TrkRangeRate'] * NUM_SLOTS +
@@ -30,7 +33,7 @@ def _create_radard_can_parser():
 
   checks = []
 
-  return CANParser(dbc_f, signals, checks)
+  return CANParser(dbc_f, signals, checks, 0)
 
 class RadarInterface(object):
   def __init__(self):
@@ -39,32 +42,26 @@ class RadarInterface(object):
     self.track_id = 0
     self.num_targets = 0
 
-    self.rcp = _create_radard_can_parser()
+    self.delay = 0.0  # Delay of radar
+
+    self.rcp = create_radard_can_parser()
 
     context = zmq.Context()
     self.logcan = messaging.sub_sock(context, service_list['can'].port)
 
   def update(self):
-    canMonoTimes = []
-    can_pub_radar = []
-
+    updated_messages = set()
     while 1:
-      for a in messaging.drain_sock(self.logcan, wait_for_one=True):
-        canMonoTimes.append(a.logMonoTime)
-        can_pub_radar.extend(can_capnp_to_can_list(a.can, [0]))
-
-      # Process all targets after last radar packet
-      if any(x[0] == LAST_RADAR_MSG for x in can_pub_radar):
+      tm = int(sec_since_boot() * 1e9)
+      updated_messages.update(self.rcp.update(tm, True))
+      if LAST_RADAR_MSG in updated_messages:
         break
-
-    updated_messages = self.rcp.update_can(can_pub_radar)
 
     ret = car.RadarState.new_message()
     errors = []
     if not self.rcp.can_valid:
       errors.append("notValid")
     ret.errors = errors
-    ret.canMonoTimes = canMonoTimes
 
     currentTargets = set()
     if self.rcp.vl[NUM_TARGETS_MSG]['LRRNumObjects'] != self.num_targets:

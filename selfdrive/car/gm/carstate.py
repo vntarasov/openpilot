@@ -4,7 +4,7 @@ from common.realtime import sec_since_boot
 import selfdrive.messaging as messaging
 from selfdrive.config import Conversions as CV
 
-from selfdrive.car.gm.can_parser import CANParser
+from selfdrive.can.parser import CANParser
 
 # Car button codes
 class CruiseButtons:
@@ -16,7 +16,7 @@ class CruiseButtons:
 
 def get_powertrain_can_parser():
   # this function generates lists for signal, messages and initial values
-  dbc_f = 'gm_global_a_powertrain.dbc'
+  dbc_f = 'gm_global_a_powertrain'
   signals = [
     # sig_name, sig_address, default
     ("SteeringWheelAngle", 485, 0),
@@ -32,21 +32,21 @@ def get_powertrain_can_parser():
     ("LKATorqueDeliveredStatus", 388, 0)
   ]
 
-  return CANParser(dbc_f, signals)
+  return CANParser(dbc_f, signals, [], 0)
 
 def get_lowspeed_can_parser():
   # this function generates lists for signal, messages and initial values
-  dbc_f = 'gm_global_a_lowspeed.dbc'
+  dbc_f = 'gm_global_a_lowspeed'
   signals = [
     ("CruiseButtons", 276135936, 2),
     ("LKAGapButton", 276127744, 0),
     ("GasPedal", 271360000, 0)
   ]
 
-  return CANParser(dbc_f, signals)
+  return CANParser(dbc_f, signals, [], 1)
 
 class CarState(object):
-  def __init__(self, CP, logcan):
+  def __init__(self, CP):
     if CP.carFingerprint != "CHEVROLET VOLT 2017 PREMIER":
       raise ValueError("unsupported car %s" % CP.carFingerprint)
 
@@ -69,11 +69,11 @@ class CarState(object):
     self.right_blinker_on = False
     self.prev_right_blinker_on = False
 
-  def update(self, can_powertrain=None, can_lowspeed=None):
+  def update(self):
+    self.powertrain_cp.update(int(sec_since_boot() * 1e9), False)
     powertrain_cp = self.powertrain_cp
-    powertrain_cp.update_can(can_powertrain)
+    self.lowspeed_cp.update(int(sec_since_boot() * 1e9), False)
     lowspeed_cp = self.lowspeed_cp
-    lowspeed_cp.update_can(can_lowspeed)
 
     self.can_valid = powertrain_cp.can_valid
     self.prev_cruise_buttons = self.cruise_buttons
@@ -103,7 +103,8 @@ class CarState(object):
     self.user_gas = self.pedal_gas
     self.user_gas_pressed = self.user_gas > 0
 
-    self.steer_override = abs(powertrain_cp.vl[388]['LKADriverAppldTrq']) > 3.0
+    self.steer_torque_driver = powertrain_cp.vl[388]['LKADriverAppldTrq']
+    self.steer_override = abs(self.steer_torque_driver) > 1.0
 
     # 3 - failed, 2 - temporary limited
     self.steer_not_allowed = powertrain_cp.vl[388]['LKATorqueDeliveredStatus'] >= 2
