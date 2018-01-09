@@ -101,13 +101,13 @@ class CarInterface(object):
                             ret.mass / mass_civic * \
                             (ret.centerToFront / ret.wheelbase) / (centerToFront_civic / wheelbase_civic)
 
-    ret.steerKp = 0.15
+    ret.steerKp = 0.25
     ret.steerKi = 0.05
     ret.steerKf = 0.
     ret.steerMaxBP = [0.] # m/s
     ret.steerMaxV = [1.]
     ret.gasMaxBP = [0.]
-    ret.gasMaxV = [0.4]
+    ret.gasMaxV = [0.2]
     ret.brakeMaxBP = [5., 20.]
     ret.brakeMaxV = [0.8, 0.6]
     ret.longPidDeadzoneBP = [0.]
@@ -121,7 +121,7 @@ class CarInterface(object):
     ret.steerLimitAlert = True
 
     ret.stoppingControl = True
-    ret.startAccel = 0.5
+    ret.startAccel = 0.8
 
     return ret
 
@@ -225,6 +225,9 @@ class CarInterface(object):
     if (ret.gasPressed and not self.gas_pressed_prev) or \
        (ret.brakePressed and (not self.brake_pressed_prev or ret.vEgo > 0.001)):
       events.append(create_event('pedalPressed', [ET.NO_ENTRY, ET.USER_DISABLE]))
+
+    if ret.gasPressed:
+      events.append(create_event('pedalPressed', [ET.PRE_ENABLE]))
 
     # handle button presses
     for b in ret.buttonEvents:
