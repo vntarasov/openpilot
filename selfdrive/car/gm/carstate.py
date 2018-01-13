@@ -106,8 +106,8 @@ class CarState(object):
     self.steer_torque_driver = powertrain_cp.vl[388]['LKADriverAppldTrq']
     self.steer_override = abs(self.steer_torque_driver) > 1.0
 
-    # 3 - failed, 2 - temporary limited
-    self.steer_not_allowed = powertrain_cp.vl[388]['LKATorqueDeliveredStatus'] >= 2
+    # 0 - inactive, 1 - active, 2 - temporary limited, 3 - failed
+    self.lkas_status = powertrain_cp.vl[388]['LKATorqueDeliveredStatus']
 
     # TODO:
     self.door_all_closed = True

@@ -48,7 +48,9 @@ class CarController(object):
     self.final_brake_last = 0.
     self.start_time = sec_since_boot()
     self.chime = 0
+    self.lkas_active = False
     self.inhibit_steer_for = 0
+    self.steer_idx = 0
 
     # redundant safety check with the board
     self.controls_allowed = False
@@ -133,17 +135,6 @@ class CarController(object):
       print "CANCELLING BRAKE"
       apply_brake = 0
 
-    if CS.steer_not_allowed:
-      # Temporary disable steering command,
-      # re-enabling after 200ms seems to be working great
-      if enabled and self.inhibit_steer_for == 0:
-        print "STEER ALERT, TORQUE INHIBITED"
-        self.inhibit_steer_for = 20
-
-    if self.inhibit_steer_for > 0:
-      apply_steer = 0
-      self.inhibit_steer_for -= 1
-
     if not enabled:
       # Without 'engaged' flag sent, won't actually trigger regen braking
       apply_gas = MAX_ACC_REGEN
@@ -168,12 +159,38 @@ class CarController(object):
     if frame % adas_keepalive_step == 0:
       can_sends += gmcan.create_adas_keepalive()
 
+    if enabled and CS.lkas_status == 1:
+      self.lkas_active = True
+    if not enabled:
+      self.lkas_active = False
+
+    # Wait for LKAS to become active,
+    # before enabling reset logic.
+    if self.lkas_active and CS.lkas_status != 1:
+      # SCM ignores steering command. Workaround is to
+      # temporary disable steering command.
+      # Re-enabling after 200ms seems to be working great
+      self.lkas_active = False
+      if self.inhibit_steer_for == 0:
+        self.inhibit_steer_for = 20
+
+    if self.inhibit_steer_for > 0:
+      apply_steer = 0
+      self.inhibit_steer_for -= 1
+
     # Stock ASCM refresh rate is at 10Hz when it's not
     # in LKA control and 50Hz when it is.
-    steer_send_step = 5 # 20Hz
-    if frame % steer_send_step == 0:
-      idx = (frame / steer_send_step) % 4
-      can_sends.append(gmcan.create_steering_control(apply_steer, idx))
+    steer_active_step = 5 # 20Hz
+    steer_inactive_step = 10 # 10Hz
+    send_steer = False
+    if not enabled or self.inhibit_steer_for > 0:
+      send_steer = (frame % steer_inactive_step) == 0
+    else:
+      send_steer = (frame % steer_active_step) == 0
+
+    if send_steer:
+      can_sends.append(gmcan.create_steering_control(apply_steer, self.steer_idx))
+      self.steer_idx = (self.steer_idx + 1) % 4
 
     # Gas/regen and brakes - all at 25Hz
     if (frame % 4) == 0:

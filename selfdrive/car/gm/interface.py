@@ -39,7 +39,10 @@ class CarInterface(object):
 
   @staticmethod
   def compute_gb(accel, speed):
-    return float(accel) / 3.0
+    if accel > 0:
+      return float(accel) / 3.0
+    else:
+      return float(accel) / 6.0
 
   @staticmethod
   def calc_accel_override(a_ego, a_target, v_ego, v_target):
@@ -107,14 +110,14 @@ class CarInterface(object):
     ret.steerMaxBP = [0.] # m/s
     ret.steerMaxV = [1.]
     ret.gasMaxBP = [0.]
-    ret.gasMaxV = [0.2]
+    ret.gasMaxV = [0.5]
     ret.brakeMaxBP = [5., 20.]
     ret.brakeMaxV = [0.8, 0.6]
     ret.longPidDeadzoneBP = [0.]
     ret.longPidDeadzoneV = [0.]
 
-    ret.longitudinalKpBP = [0., 5., 35.]
-    ret.longitudinalKpV = [3.6, 2.4, 1.5]
+    ret.longitudinalKpBP = [0., 10., 35.]
+    ret.longitudinalKpV = [4., 2.4, 1.5]
     ret.longitudinalKiBP = [0., 35.]
     ret.longitudinalKiV = [0.54, 0.36]
 
@@ -206,7 +209,7 @@ class CarInterface(object):
       self.can_invalid_count = 0
     if self.CS.steer_error:
       events.append(create_event('steerUnavailable', [ET.NO_ENTRY, ET.IMMEDIATE_DISABLE]))
-    if self.CS.steer_not_allowed:
+    if self.CS.lkas_status > 1:
       events.append(create_event('steerTempUnavailable', [ET.NO_ENTRY, ET.WARNING]))
     if self.CS.brake_error:
       events.append(create_event('brakeUnavailable', [ET.NO_ENTRY, ET.IMMEDIATE_DISABLE]))
