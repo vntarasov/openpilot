@@ -137,11 +137,12 @@ class CarInterface(object):
 
     # speeds
     ret.vEgo = self.CS.v_ego
-    cv = 1.0 / CV.MS_TO_KPH
-    ret.wheelSpeeds.fl = self.CS.powertrain_cp.vl[840]['FLWheelSpd'] * cv
-    ret.wheelSpeeds.fr = self.CS.powertrain_cp.vl[840]['FRWheelSpd'] * cv
-    ret.wheelSpeeds.rl = self.CS.powertrain_cp.vl[842]['RLWheelSpd'] * cv
-    ret.wheelSpeeds.rr = self.CS.powertrain_cp.vl[842]['RRWheelSpd'] * cv
+    ret.vEgoRaw = self.CS.v_ego_raw
+    ret.standstill = self.CS.standstill
+    ret.wheelSpeeds.fl = self.CS.v_wheel_fl
+    ret.wheelSpeeds.fr = self.CS.v_wheel_fr
+    ret.wheelSpeeds.rl = self.CS.v_wheel_rl
+    ret.wheelSpeeds.rr = self.CS.v_wheel_rr
 
     # gas pedal information.
     ret.gas = self.CS.pedal_gas / 254.0
@@ -160,9 +161,11 @@ class CarInterface(object):
     ret.steeringTorque = self.CS.steer_torque_driver
 
     # cruise state
+    ret.cruiseState.available = False
     ret.cruiseState.enabled = False
     ret.cruiseState.speed = 0
-    ret.cruiseState.available = True
+    ret.cruiseState.speedOffset = 0.
+    ret.cruiseState.standstill = False
 
     buttonEvents = []
 

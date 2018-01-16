@@ -58,8 +58,6 @@ class CarState(object):
 
     self.car_gas = 0
 
-    self.v_wheel = 0.0
-
     self.cruise_buttons = CruiseButtons.UNPRESS
     self.lkas_gap_buttons = 0
 
@@ -80,12 +78,18 @@ class CarState(object):
     self.cruise_buttons = lowspeed_cp.vl[276135936]['CruiseButtons']
     self.lkas_gap_buttons = lowspeed_cp.vl[276127744]['LKAGapButton']
 
-    # calc best v_ego estimate, by averaging two opposite corners
-    speed_estimate = (
-      powertrain_cp.vl[840]['FLWheelSpd'] + powertrain_cp.vl[840]['FRWheelSpd'] +
-      powertrain_cp.vl[842]['RLWheelSpd'] + powertrain_cp.vl[842]['RRWheelSpd']) / 4.0
+    # CAN bus reading is a bit below dashboard speedometer
+    cv = 1.02 / CV.MS_TO_KPH
 
-    self.v_ego = self.v_wheel = speed_estimate / CV.MS_TO_KPH
+    self.v_wheel_fl = powertrain_cp.vl[840]['FLWheelSpd'] * cv
+    self.v_wheel_fr = powertrain_cp.vl[840]['FRWheelSpd'] * cv
+    self.v_wheel_rl = powertrain_cp.vl[842]['RLWheelSpd'] * cv
+    self.v_wheel_rr = powertrain_cp.vl[842]['RRWheelSpd'] * cv
+    speed_estimate = (self.v_wheel_fl + self.v_wheel_fr +
+      self.v_wheel_rl + self.v_wheel_rr) / 4.0
+
+    self.v_ego_raw = self.v_ego = speed_estimate
+    self.standstill = self.v_ego == 0.
 
     self.angle_steers = powertrain_cp.vl[485]['SteeringWheelAngle']
     self.gear_shifter = powertrain_cp.vl[309]['PRNDL']
