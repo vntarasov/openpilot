@@ -4,6 +4,7 @@ import common.numpy_fast as np
 
 from selfdrive.config import Conversions as CV
 from selfdrive.controls.lib.drive_helpers import create_event, EventTypes as ET, get_events
+from selfdrive.controls.lib.vehicle_model import VehicleModel
 from .carstate import CarState, CruiseButtons
 from .carcontroller import CarController
 
@@ -31,6 +32,7 @@ class CarInterface(object):
 
     # *** init the major players ***
     self.CS = CarState(CP)
+    self.VM = VehicleModel(CP)
 
     # sending if read only is False
     if sendcan is not None:
@@ -126,6 +128,8 @@ class CarInterface(object):
     ret.stoppingControl = True
     ret.startAccel = 0.8
 
+    ret.steerRateCost = 0.5
+
     return ret
 
   # returns a car.CarState
@@ -138,6 +142,7 @@ class CarInterface(object):
     # speeds
     ret.vEgo = self.CS.v_ego
     ret.vEgoRaw = self.CS.v_ego_raw
+    ret.yawRate = self.VM.yaw_rate(self.CS.angle_steers * CV.DEG_TO_RAD, self.CS.v_ego)
     ret.standstill = self.CS.standstill
     ret.wheelSpeeds.fl = self.CS.v_wheel_fl
     ret.wheelSpeeds.fr = self.CS.v_wheel_fr
@@ -211,11 +216,11 @@ class CarInterface(object):
     else:
       self.can_invalid_count = 0
     if self.CS.steer_error:
-      events.append(create_event('steerUnavailable', [ET.NO_ENTRY, ET.IMMEDIATE_DISABLE]))
+      events.append(create_event('steerUnavailable', [ET.NO_ENTRY, ET.IMMEDIATE_DISABLE, ET.PERMANENT]))
     if self.CS.lkas_status > 1:
       events.append(create_event('steerTempUnavailable', [ET.NO_ENTRY, ET.WARNING]))
     if self.CS.brake_error:
-      events.append(create_event('brakeUnavailable', [ET.NO_ENTRY, ET.IMMEDIATE_DISABLE]))
+      events.append(create_event('brakeUnavailable', [ET.NO_ENTRY, ET.IMMEDIATE_DISABLE, ET.PERMANENT]))
     if not self.CS.gear_shifter_valid:
       events.append(create_event('wrongGear', [ET.NO_ENTRY, ET.SOFT_DISABLE]))
     if not self.CS.door_all_closed:
