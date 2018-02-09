@@ -29,6 +29,12 @@ Supported Cars
 - Honda CR-V Touring 2015-2016
   - Can only be enabled above 25 mph
 
+- Honda Odyssey 2018 with Honda Sensing (alpha!)
+  - Can only be enabled above 25 mph
+
+- Acura RDX 2018 with AcuraWatch Plus (alpha!)
+  - Can only be enabled above 25 mph
+
 - Toyota RAV-4 2016+ non-hybrid with TSS-P
   - By default it uses stock Toyota ACC for longitudinal control
   - openpilot longitudinal control available after unplugging the [Driving Support ECU](https://community.comma.ai/wiki/index.php/Toyota#Rav4_.28for_openpilot.29) and can be enabled above 20 mph
@@ -42,11 +48,22 @@ Supported Cars
   - By default it uses stock Toyota ACC for longitudinal control
   - openpilot longitudinal control available after unplugging the [Driving Support ECU](https://community.comma.ai/wiki/index.php/Toyota#Rav4_.28for_openpilot.29) and can do stop and go
 
+- Toyota Corolla 2017 (alpha!)
+  - By default it uses stock Toyota ACC for longitudinal control
+  - openpilot longitudinal control available after unplugging the [Driving Support ECU](https://community.comma.ai/wiki/index.php/Toyota#Corolla_.28for_openpilot.29) and can be enabled above 20 mph
+
+- Lexus RX 2017 hybrid (alpha!)
+  - By default it uses stock Lexus ACC for longitudinal control
+  - openpilot longitudinal control available after unplugging the [Driving Support ECU](https://community.comma.ai/wiki/index.php/Toyota#Lexus_RX_hybrid)
+
 In Progress Cars
 ------
-- Probably all TSS-P Toyota with Steering Assist.
+- All TSS-P Toyota with Steering Assist.
   - 'Full Speed Range Dynamic Radar Cruise Control' is required to enable stop-and-go. Only the Prius, Camry and C-HR have this option.
   - Even though the Tundra, Sequoia and the Land Cruiser have TSS-P, they don't have Steering Assist and are not supported.
+- All LSS-P Lexus with Steering Assist or Lane Keep Assist.
+  - 'All-Speed Range Dynamic Radar Cruise Control' is required to enable stop-and-go. Only the GS, GSH, GS, F, RX, RXH, LX, NX, NXH, LC, LCH, LS, LSH have this option.
+  - Even though the LX have TSS-P, it does not have Steering Assist and is not supported.
 
 Community WIP Cars
 ------
@@ -55,11 +72,7 @@ Community WIP Cars
 
 - [Classic Tesla Model S (pre-AP)](https://github.com/commaai/openpilot/pull/145)
 
-- [Honda Odyssey 2018 with Honda Sensing](https://github.com/commaai/openpilot/pull/155)
-
 - [Honda Pilot 2017 with Honda Sensing](https://github.com/commaai/openpilot/pull/161)
-
-- [Acura RDX 2018 with AcuraWatch Plus](https://github.com/commaai/openpilot/pull/162)
 
 Directory structure
 ------
@@ -79,7 +92,6 @@ Directory structure
   - logcatd       -- Android logcat as a service
   - loggerd       -- Logger and uploader of car data
   - proclogd      -- Logs information from proc
-  - radar         -- Code that talks to the radar and implements RadarInterface
   - sensord       -- IMU / GPS interface code
   - test/plant    -- Car simulator running code through virtual maneuvers
   - ui            -- The UI

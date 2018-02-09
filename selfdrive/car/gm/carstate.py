@@ -47,9 +47,6 @@ def get_lowspeed_can_parser():
 
 class CarState(object):
   def __init__(self, CP):
-    if CP.carFingerprint != "CHEVROLET VOLT 2017 PREMIER":
-      raise ValueError("unsupported car %s" % CP.carFingerprint)
-
     self.brake_only = CP.enableCruise
 
     # initialize can parsers

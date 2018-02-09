@@ -52,14 +52,9 @@ class CarInterface(object):
 
   @staticmethod
   def get_params(candidate, fingerprint):
-
-    if candidate != "CHEVROLET VOLT 2017 PREMIER":
-      raise ValueError("unsupported car %s" % candidate)
-
     ret = car.CarParams.new_message()
 
     ret.carName = "gm"
-    ret.radarName = "continental"
     ret.carFingerprint = candidate
 
     ret.enableSteer = True
