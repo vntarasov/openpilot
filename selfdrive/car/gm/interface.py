@@ -149,8 +149,8 @@ class CarInterface(object):
     ret.gasPressed = self.CS.user_gas_pressed
 
     # brake pedal
-    ret.brake = self.CS.user_brake
-    ret.brakePressed = self.CS.brake_pressed != 0
+    ret.brake = self.CS.user_brake / 0xd0
+    ret.brakePressed = self.CS.brake_pressed
 
     # steering wheel
     ret.steeringAngle = self.CS.angle_steers
@@ -167,19 +167,24 @@ class CarInterface(object):
     ret.cruiseState.speedOffset = 0.
     ret.cruiseState.standstill = False
 
+    ret.leftBlinker = self.CS.left_blinker_on
+    ret.rightBlinker = self.CS.right_blinker_on
+    ret.doorOpen = not self.CS.door_all_closed
+    ret.seatbeltUnlatched = not self.CS.seatbelt
+
     buttonEvents = []
 
-    # TODO: blinkers
+    # blinkers
     if self.CS.left_blinker_on != self.CS.prev_left_blinker_on:
       be = car.CarState.ButtonEvent.new_message()
       be.type = 'leftBlinker'
-      be.pressed = self.CS.left_blinker_on != 0
+      be.pressed = self.CS.left_blinker_on
       buttonEvents.append(be)
 
     if self.CS.right_blinker_on != self.CS.prev_right_blinker_on:
       be = car.CarState.ButtonEvent.new_message()
       be.type = 'rightBlinker'
-      be.pressed = self.CS.right_blinker_on != 0
+      be.pressed = self.CS.right_blinker_on
       buttonEvents.append(be)
 
     if self.CS.cruise_buttons != self.CS.prev_cruise_buttons:
@@ -218,9 +223,9 @@ class CarInterface(object):
       events.append(create_event('brakeUnavailable', [ET.NO_ENTRY, ET.IMMEDIATE_DISABLE, ET.PERMANENT]))
     if not self.CS.gear_shifter_valid:
       events.append(create_event('wrongGear', [ET.NO_ENTRY, ET.SOFT_DISABLE]))
-    if not self.CS.door_all_closed:
+    if ret.doorOpen:
       events.append(create_event('doorOpen', [ET.NO_ENTRY, ET.SOFT_DISABLE]))
-    if not self.CS.seatbelt:
+    if ret.seatbeltUnlatched:
       events.append(create_event('seatbeltNotLatched', [ET.NO_ENTRY, ET.SOFT_DISABLE]))
     if not self.CS.main_on:
       events.append(create_event('wrongCarMode', [ET.NO_ENTRY, ET.USER_DISABLE]))

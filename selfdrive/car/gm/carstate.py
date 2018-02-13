@@ -19,14 +19,20 @@ def get_powertrain_can_parser():
   dbc_f = 'gm_global_a_powertrain'
   signals = [
     # sig_name, sig_address, default
+    ("RegenPaddle", 189, 0),
+    ("BrakePedalPosition", 241, 0),
+    ("FrontLeftDoor", 298, 0),
+    ("FrontRightDoor", 298, 0),
+    ("RearLeftDoor", 298, 0),
+    ("RearRightDoor", 298, 0),
+    ("LeftSeatBelt", 298, 0),
+    ("RightSeatBelt", 298, 0),
+    ("TurnSignals", 320, 0),
     ("SteeringWheelAngle", 485, 0),
     ("FLWheelSpd", 840, 0),
     ("FRWheelSpd", 840, 0),
     ("RLWheelSpd", 842, 0),
     ("RRWheelSpd", 842, 0),
-    ("BrakePedalPosition", 241, 0),
-    ("RegenPaddle", 189, 0),
-    ("AcceleratorPos", 190, 0),
     ("PRNDL", 309, 0),
     ("LKADriverAppldTrq", 388, 0),
     ("LKATorqueDeliveredStatus", 388, 0)
@@ -58,7 +64,6 @@ class CarState(object):
     self.cruise_buttons = CruiseButtons.UNPRESS
     self.lkas_gap_buttons = 0
 
-    # TODO:
     self.left_blinker_on = False
     self.prev_left_blinker_on = False
     self.right_blinker_on = False
@@ -93,10 +98,14 @@ class CarState(object):
 
     self.user_brake = powertrain_cp.vl[241]['BrakePedalPosition']
     # Brake pedal's potentiometer returns near-zero reading
-    # even when pedal is not pressed
-    self.brake_pressed = self.user_brake > 5
+    # even when pedal is not pressed. It seems to be fixed
+    # in latest OEM firmware, but it's pretty harmless to leave
+    # this compatibility margin in place.
+    if self.user_brake <= 5:
+      self.user_brake = 0
+    self.brake_pressed = self.user_brake > 0
 
-    self.regen_pressed = powertrain_cp.vl[189]['RegenPaddle']
+    self.regen_pressed = bool(powertrain_cp.vl[189]['RegenPaddle'])
     # Regen braking is braking
     self.brake_pressed = self.brake_pressed or self.regen_pressed
 
@@ -110,15 +119,26 @@ class CarState(object):
     # 0 - inactive, 1 - active, 2 - temporary limited, 3 - failed
     self.lkas_status = powertrain_cp.vl[388]['LKATorqueDeliveredStatus']
 
-    # TODO:
-    self.door_all_closed = True
-    self.seatbelt = True
+    # 1 - open, 0 - closed
+    self.door_all_closed = (powertrain_cp.vl[298]['FrontLeftDoor'] == 0 and
+      powertrain_cp.vl[298]['FrontRightDoor'] == 0 and
+      powertrain_cp.vl[298]['RearLeftDoor'] == 0 and
+      powertrain_cp.vl[298]['RearRightDoor'] == 0)
+
+    # 1 - latched
+    self.seatbelt = powertrain_cp.vl[298]['LeftSeatBelt'] == 1
+
     self.steer_error = False
 
     self.brake_error = False
     self.esp_disabled = False
     self.main_on = True
     self.can_valid = True
+
+    self.prev_left_blinker_on = self.left_blinker_on
+    self.prev_right_blinker_on = self.right_blinker_on
+    self.left_blinker_on = powertrain_cp.vl[320]['TurnSignals'] == 1
+    self.right_blinker_on = powertrain_cp.vl[320]['TurnSignals'] == 2
 
     # Alow Park (0) and D/L (2)
     self.gear_shifter_valid = self.gear_shifter in [0, 2]
