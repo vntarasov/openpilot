@@ -6,6 +6,30 @@ from selfdrive.config import Conversions as CV
 
 from selfdrive.can.parser import CANParser
 
+class VoltCanBus:
+  volt_can_forwarding = True
+  if volt_can_forwarding:
+    # Object/obstacle detection CAN is all we got.
+    # For carstate, powertrain messages are
+    # forwarded to it.
+    # for carcontrol, messages that openpilot sends
+    # on it are forwarded to either chassis or
+    # powertrain based on message address
+    powertrain = 0
+    obstacle = 0
+    chassis = 0
+
+    voltboard = True
+    if voltboard:
+      sw_gmlan = 1
+    else:
+      sw_gmlan = 3
+  else:
+    powertrain = 0
+    obstacle = 1
+    chassis = 2
+    sw_gmlan = 3
+
 # Car button codes
 class CruiseButtons:
   UNPRESS     = 2
@@ -38,7 +62,7 @@ def get_powertrain_can_parser():
     ("LKATorqueDeliveredStatus", 388, 0)
   ]
 
-  return CANParser(dbc_f, signals, [], 0)
+  return CANParser(dbc_f, signals, [], VoltCanBus.powertrain)
 
 def get_lowspeed_can_parser():
   # this function generates lists for signal, messages and initial values
@@ -49,7 +73,7 @@ def get_lowspeed_can_parser():
     ("GasPedal", 271360000, 0)
   ]
 
-  return CANParser(dbc_f, signals, [], 1)
+  return CANParser(dbc_f, signals, [], VoltCanBus.sw_gmlan)
 
 class CarState(object):
   def __init__(self, CP):

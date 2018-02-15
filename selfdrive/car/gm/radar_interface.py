@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import numpy as np
 from selfdrive.can.parser import CANParser
+from .carstate import VoltCanBus
 
 from cereal import car
 from common.realtime import sec_since_boot
@@ -33,7 +34,7 @@ def create_radard_can_parser():
 
   checks = []
 
-  return CANParser(dbc_f, signals, checks, 0)
+  return CANParser(dbc_f, signals, checks, VoltCanBus.obstacle)
 
 class RadarInterface(object):
   def __init__(self):
