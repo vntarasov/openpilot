@@ -32,11 +32,11 @@ class VoltCanBus:
 
 # Car button codes
 class CruiseButtons:
-  UNPRESS     = 2
-  RES_ACCEL   = 4
-  DECEL_SET   = 6
-  CANCEL      = 12
-  MAIN        = 10
+  UNPRESS     = 1
+  RES_ACCEL   = 2
+  DECEL_SET   = 3
+  MAIN        = 5
+  CANCEL      = 6
 
 def get_powertrain_can_parser():
   # this function generates lists for signal, messages and initial values
@@ -52,6 +52,7 @@ def get_powertrain_can_parser():
     ("LeftSeatBelt", 298, 0),
     ("RightSeatBelt", 298, 0),
     ("TurnSignals", 320, 0),
+    ("ACCButtons", 481, CruiseButtons.UNPRESS),
     ("SteeringWheelAngle", 485, 0),
     ("FLWheelSpd", 840, 0),
     ("FRWheelSpd", 840, 0),
@@ -68,8 +69,6 @@ def get_lowspeed_can_parser():
   # this function generates lists for signal, messages and initial values
   dbc_f = 'gm_global_a_lowspeed'
   signals = [
-    ("CruiseButtons", 276135936, 2),
-    ("LKAGapButton", 276127744, 0),
     ("GasPedal", 271360000, 0)
   ]
 
@@ -86,7 +85,6 @@ class CarState(object):
     self.car_gas = 0
 
     self.cruise_buttons = CruiseButtons.UNPRESS
-    self.lkas_gap_buttons = 0
 
     self.left_blinker_on = False
     self.prev_left_blinker_on = False
@@ -101,8 +99,7 @@ class CarState(object):
 
     self.can_valid = powertrain_cp.can_valid
     self.prev_cruise_buttons = self.cruise_buttons
-    self.cruise_buttons = lowspeed_cp.vl[276135936]['CruiseButtons']
-    self.lkas_gap_buttons = lowspeed_cp.vl[276127744]['LKAGapButton']
+    self.cruise_buttons = powertrain_cp.vl[481]['ACCButtons']
 
     # CAN bus reading is a bit below dashboard speedometer
     cv = 1.02 / CV.MS_TO_KPH
