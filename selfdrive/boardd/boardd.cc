@@ -222,9 +222,8 @@ void can_recv(void *s) {
   for (int i = 0; i<(recv/0x10); i++) {
     if (data[i*4] & 4) {
       // extended
-      // Drop sender ECU ID
-      uint32_t address = (data[i*4] >> 3) & 0x1ffff000;
-      canData[i].setAddress(address);
+      canData[i].setAddress(data[i*4] >> 3);
+      //printf("got extended: %x\n", data[i*4] >> 3);
     } else {
       // normal
       canData[i].setAddress(data[i*4] >> 21);
