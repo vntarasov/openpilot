@@ -126,12 +126,12 @@ class CarController(object):
     apply_steer = int(clip(steer, -STEER_MAX, STEER_MAX))
 
     # no gas if driver is hitting the brake
-    if apply_gas > 0 and CS.brake_pressed:
+    if apply_gas != 0 and CS.brake_pressed:
       print "CANCELLING GAS", apply_brake
       apply_gas = 0
 
     # no computer brake if the gas is being pressed
-    if CS.car_gas > 0 and apply_brake != 0:
+    if apply_brake != 0 and CS.user_gas_pressed:
       print "CANCELLING BRAKE"
       apply_brake = 0
 
@@ -147,7 +147,7 @@ class CarController(object):
 
     # *** exit from controls state on cancel, gas, or brake ***
     if (CS.cruise_buttons == CruiseButtons.CANCEL or CS.brake_pressed or
-        CS.user_gas_pressed or (CS.pedal_gas > 0 and CS.brake_only)) and self.controls_allowed:
+        CS.user_gas_pressed) and self.controls_allowed:
       print "CONTROLS ARE DEAD"
       self.controls_allowed = False
 

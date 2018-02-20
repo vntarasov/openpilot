@@ -52,6 +52,7 @@ def get_powertrain_can_parser():
     ("LeftSeatBelt", 298, 0),
     ("RightSeatBelt", 298, 0),
     ("TurnSignals", 320, 0),
+    ("AcceleratorPedal", 417, 0),
     ("ACCButtons", 481, CruiseButtons.UNPRESS),
     ("SteeringWheelAngle", 485, 0),
     ("FLWheelSpd", 840, 0),
@@ -65,24 +66,10 @@ def get_powertrain_can_parser():
 
   return CANParser(dbc_f, signals, [], VoltCanBus.powertrain)
 
-def get_lowspeed_can_parser():
-  # this function generates lists for signal, messages and initial values
-  dbc_f = 'gm_global_a_lowspeed'
-  signals = [
-    ("GasPedal", 271360000, 0)
-  ]
-
-  return CANParser(dbc_f, signals, [], VoltCanBus.sw_gmlan)
-
 class CarState(object):
   def __init__(self, CP):
-    self.brake_only = CP.enableCruise
-
-    # initialize can parsers
+    # initialize can parser
     self.powertrain_cp = get_powertrain_can_parser()
-    self.lowspeed_cp = get_lowspeed_can_parser()
-
-    self.car_gas = 0
 
     self.cruise_buttons = CruiseButtons.UNPRESS
 
@@ -94,8 +81,6 @@ class CarState(object):
   def update(self):
     self.powertrain_cp.update(int(sec_since_boot() * 1e9), False)
     powertrain_cp = self.powertrain_cp
-    self.lowspeed_cp.update(int(sec_since_boot() * 1e9), False)
-    lowspeed_cp = self.lowspeed_cp
 
     self.can_valid = powertrain_cp.can_valid
     self.prev_cruise_buttons = self.cruise_buttons
@@ -130,9 +115,8 @@ class CarState(object):
     # Regen braking is braking
     self.brake_pressed = self.brake_pressed or self.regen_pressed
 
-    self.pedal_gas = lowspeed_cp.vl[271360000]['GasPedal']
-    self.user_gas = self.pedal_gas
-    self.user_gas_pressed = self.user_gas > 0
+    self.pedal_gas = powertrain_cp.vl[417]['AcceleratorPedal']
+    self.user_gas_pressed = self.pedal_gas > 0
 
     self.steer_torque_driver = powertrain_cp.vl[388]['LKADriverAppldTrq']
     self.steer_override = abs(self.steer_torque_driver) > 1.0
