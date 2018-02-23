@@ -79,7 +79,8 @@ class CarController(object):
 
     # *** compute control surfaces ***
     tt = sec_since_boot()
-    GAS_MAX = 2047
+    # Only a safety limit
+    GAS_MAX = 1024
 
     # If final_brake less than this, do pure regen
     REGEN_ONLY_BRAKE = 0.4
@@ -96,7 +97,8 @@ class CarController(object):
     # As far as DBC goes, there are
     # 11 bits for steering, including 1 bit for sign.
     # 12-th bit is boolean flag LKAS on/off.
-    STEER_MAX =  0xff
+    # EPS returns an error if steer command exceeds 0xff.
+    STEER_MAX = 0xff
 
     # Below that means regen braking
     GAS_OFFSET = 2048
