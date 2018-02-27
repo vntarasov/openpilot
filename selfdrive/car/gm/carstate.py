@@ -104,10 +104,8 @@ class CarState(object):
 
     self.user_brake = powertrain_cp.vl[241]['BrakePedalPosition']
     # Brake pedal's potentiometer returns near-zero reading
-    # even when pedal is not pressed. It seems to be fixed
-    # in latest OEM firmware, but it's pretty harmless to leave
-    # this compatibility margin in place.
-    if self.user_brake <= 5:
+    # even when pedal is not pressed.
+    if self.user_brake < 10:
       self.user_brake = 0
     self.brake_pressed = self.user_brake > 0
 
