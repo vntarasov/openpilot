@@ -86,9 +86,7 @@ class CarState(object):
     self.prev_cruise_buttons = self.cruise_buttons
     self.cruise_buttons = powertrain_cp.vl[481]['ACCButtons']
 
-    # CAN bus reading is a bit below dashboard speedometer
-    cv = 1.02 / CV.MS_TO_KPH
-
+    cv = CV.KPH_TO_MS
     self.v_wheel_fl = powertrain_cp.vl[840]['FLWheelSpd'] * cv
     self.v_wheel_fr = powertrain_cp.vl[840]['FRWheelSpd'] * cv
     self.v_wheel_rl = powertrain_cp.vl[842]['RLWheelSpd'] * cv
