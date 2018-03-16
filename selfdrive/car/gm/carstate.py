@@ -1,9 +1,8 @@
-import common.numpy_fast as np
-from common.realtime import sec_since_boot
-
+import numpy as np
 import selfdrive.messaging as messaging
+from common.realtime import sec_since_boot
+from common.kalman.simple_kalman import KF1D
 from selfdrive.config import Conversions as CV
-
 from selfdrive.can.parser import CANParser
 
 class VoltCanBus:
@@ -78,6 +77,14 @@ class CarState(object):
     self.right_blinker_on = False
     self.prev_right_blinker_on = False
 
+    # vEgo kalman filter
+    dt = 0.01
+    self.v_ego_kf = KF1D(x0=np.matrix([[0.], [0.]]),
+                         A=np.matrix([[1., dt], [0., 1.]]),
+                         C=np.matrix([1., 0.]),
+                         K=np.matrix([[0.12287673], [0.29666309]]))
+    self.v_ego = 0.
+
   def update(self):
     self.powertrain_cp.update(int(sec_since_boot() * 1e9), False)
     powertrain_cp = self.powertrain_cp
@@ -94,7 +101,11 @@ class CarState(object):
     speed_estimate = (self.v_wheel_fl + self.v_wheel_fr +
       self.v_wheel_rl + self.v_wheel_rr) / 4.0
 
-    self.v_ego_raw = self.v_ego = speed_estimate
+    self.v_ego_raw = speed_estimate
+    v_ego_x = self.v_ego_kf.update(speed_estimate)
+    self.v_ego = float(v_ego_x[0])
+    self.a_ego = float(v_ego_x[1])
+
     self.standstill = self.v_ego == 0.
 
     self.angle_steers = powertrain_cp.vl[485]['SteeringWheelAngle']
