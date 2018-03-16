@@ -101,8 +101,10 @@ class CarInterface(object):
                             ret.mass / mass_civic * \
                             (ret.centerToFront / ret.wheelbase) / (centerToFront_civic / wheelbase_civic)
 
-    ret.steerKp = 0.25
-    ret.steerKi = 0.05
+    ret.steerKpBP = [9., 27.]
+    ret.steerKpV = [0.1, 0.35]
+    ret.steerKiBP = [9., 27.]
+    ret.steerKiV = [0.05, 0.1]
     ret.steerKf = 0.
     ret.steerMaxBP = [0.] # m/s
     ret.steerMaxV = [1.]
