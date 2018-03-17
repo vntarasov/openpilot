@@ -2,6 +2,8 @@
 import time
 import common.numpy_fast as np
 
+from common.realtime import sec_since_boot
+from selfdrive.can.parser import CANParser
 from selfdrive.config import Conversions as CV
 from selfdrive.controls.lib.drive_helpers import create_event, EventTypes as ET, get_events
 from selfdrive.controls.lib.vehicle_model import VehicleModel
@@ -21,6 +23,45 @@ class CM:
   LOW_CHIME = 0x86
   HIGH_CHIME = 0x87
 
+# GM cars have 4 CAN buses, which creates many ways
+# of how the car can be connected to.
+# This ia a helper class for the interface to be setup-agnostic.
+# Supports single Panda setup (connected to OBDII port),
+# and a CAN forwarding setup (connected to camera module connector).
+class CanBus(object):
+  def __init__(self):
+    # Regardless of the setup
+    self.powertrain = 0
+
+    # Only subset of powertrain is forwarded in
+    # CAN forwarding setup. 190 is not forwarded.
+    probe_signal = "GasPedalAndAcc"
+    probe_address = 190
+    dbc_f = "gm_global_a_powertrain"
+    signals = [(probe_signal, probe_address, 0)]
+    cp = CANParser(dbc_f, signals, [], self.powertrain)
+    time.sleep(0.1)
+    cp.update(int(sec_since_boot() * 1e9), False)
+
+    if cp.ts[probe_address][probe_signal] == 0:
+      # Object/obstacle detection CAN is all we got.
+      # For carstate, powertrain messages are
+      # forwarded to it.
+      # for carcontrol, messages that openpilot sends
+      # on it are forwarded to either chassis or
+      # powertrain based on message address
+      print "CAN forwarding setup detected"
+      self.can_forwarding = True
+      self.obstacle = 0
+      self.chassis = 0
+      self.sw_gmlan = 1
+    else:
+      print "Panda(s)-on-OBDII setup"
+      self.can_forwarding = False
+      self.obstacle = 1
+      self.chassis = 2
+      self.sw_gmlan = 3
+
 class CarInterface(object):
   def __init__(self, CP, sendcan=None):
     self.CP = CP
@@ -31,13 +72,14 @@ class CarInterface(object):
     self.can_invalid_count = 0
 
     # *** init the major players ***
-    self.CS = CarState(CP)
+    canbus = CanBus()
+    self.CS = CarState(CP, canbus)
     self.VM = VehicleModel(CP)
 
     # sending if read only is False
     if sendcan is not None:
       self.sendcan = sendcan
-      self.CC = CarController()
+      self.CC = CarController(canbus)
 
   @staticmethod
   def compute_gb(accel, speed):

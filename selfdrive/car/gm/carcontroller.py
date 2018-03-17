@@ -42,7 +42,7 @@ def actuator_hystereses(final_brake, braking, brake_steady, v_ego, civic):
   return final_brake, braking, brake_steady
 
 class CarController(object):
-  def __init__(self):
+  def __init__(self, canbus):
     self.braking = False
     self.brake_steady = 0.
     self.final_brake_last = 0.
@@ -51,6 +51,10 @@ class CarController(object):
     self.lkas_active = False
     self.inhibit_steer_for = 0
     self.steer_idx = 0
+
+    # Setup detection helper. Routes commands to
+    # an appropriate CAN bus number.
+    self.canbus = canbus
 
     # redundant safety check with the board
     self.controls_allowed = False
@@ -157,9 +161,10 @@ class CarController(object):
     can_sends = []
 
     # Send ADAS keepalive, 10hz
+    canbus = self.canbus
     adas_keepalive_step = 10
     if frame % adas_keepalive_step == 0:
-      can_sends += gmcan.create_adas_keepalive()
+      can_sends += gmcan.create_adas_keepalive(canbus.powertrain)
 
     if enabled and CS.lkas_status == 1:
       self.lkas_active = True
@@ -191,7 +196,7 @@ class CarController(object):
       send_steer = (frame % steer_active_step) == 0
 
     if send_steer:
-      can_sends.append(gmcan.create_steering_control(apply_steer, self.steer_idx))
+      can_sends.append(gmcan.create_steering_control(canbus.powertrain, apply_steer, self.steer_idx))
       self.steer_idx = (self.steer_idx + 1) % 4
 
     # Gas/regen and brakes - all at 25Hz
@@ -200,29 +205,29 @@ class CarController(object):
 
       at_full_stop = enabled and CS.v_ego == 0
       near_stop = enabled and (CS.v_ego < NEAR_STOP_BRAKE_PHASE)
-      can_sends.append(gmcan.create_friction_brake_command(apply_brake, idx, near_stop, at_full_stop))
+      can_sends.append(gmcan.create_friction_brake_command(canbus.chassis, apply_brake, idx, near_stop, at_full_stop))
 
       gas_amount = apply_gas + GAS_OFFSET
       at_full_stop = enabled and CS.v_ego == 0
-      can_sends.append(gmcan.create_gas_regen_command(gas_amount, idx, enabled, at_full_stop))
+      can_sends.append(gmcan.create_gas_regen_command(canbus.powertrain, gas_amount, idx, enabled, at_full_stop))
 
     # Send dashboard UI commands (ACC status), 25hz
     if (frame % 4) == 0:
-      can_sends.append(gmcan.create_acc_dashboard_command(enabled, hud_v_cruise / CV.MS_TO_KPH, hud_show_car))
+      can_sends.append(gmcan.create_acc_dashboard_command(canbus.powertrain, enabled, hud_v_cruise / CV.MS_TO_KPH, hud_show_car))
 
     # Radar needs to know current speed and yaw rate (50hz),
     # and that ADAS is alive (10hz)
     time_and_headlights_step = 10
     if frame % time_and_headlights_step == 0:
       idx = (frame / time_and_headlights_step) % 4
-      can_sends.append(gmcan.create_adas_time_status(int((tt - self.start_time) * 60), idx))
-      can_sends.append(gmcan.create_adas_headlights_status())
+      can_sends.append(gmcan.create_adas_time_status(canbus.obstacle, int((tt - self.start_time) * 60), idx))
+      can_sends.append(gmcan.create_adas_headlights_status(canbus.obstacle))
 
     speed_and_accelerometer_step = 2
     if frame % speed_and_accelerometer_step == 0:
       idx = (frame / speed_and_accelerometer_step) % 4
-      can_sends.append(gmcan.create_adas_steering_status(idx))
-      can_sends.append(gmcan.create_adas_accelerometer_speed_status(CS.v_ego, idx))
+      can_sends.append(gmcan.create_adas_steering_status(canbus.obstacle, idx))
+      can_sends.append(gmcan.create_adas_accelerometer_speed_status(canbus.obstacle, CS.v_ego, idx))
 
     # Send chimes
     if self.chime != chime:
@@ -235,7 +240,7 @@ class CarController(object):
         chime_cnt = 10
 
       if chime != 0:
-        can_sends.append(gmcan.create_chime_command(chime, duration, chime_cnt))
+        can_sends.append(gmcan.create_chime_command(canbus.sw_gmlan, chime, duration, chime_cnt))
 
       # If canceling a repeated chime, cancel command must be
       # issued for the same chime type and duration

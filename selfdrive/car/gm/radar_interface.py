@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import numpy as np
 from selfdrive.can.parser import CANParser
-from .carstate import VoltCanBus
+from .interface import CanBus
 
 from cereal import car
 from common.realtime import sec_since_boot
@@ -19,7 +19,7 @@ NUM_SLOTS = 20
 # messages that are present in DBC
 LAST_RADAR_MSG = NUM_TARGETS_MSG + NUM_SLOTS
 
-def create_radard_can_parser():
+def create_radard_can_parser(canbus):
   # C1A-ARS3-A by Continental
   dbc_f = 'gm_global_a_object'
   radar_targets = range(SLOT_1_MSG, SLOT_1_MSG + NUM_SLOTS)
@@ -34,7 +34,7 @@ def create_radard_can_parser():
 
   checks = []
 
-  return CANParser(dbc_f, signals, checks, VoltCanBus.obstacle)
+  return CANParser(dbc_f, signals, checks, canbus.obstacle)
 
 class RadarInterface(object):
   def __init__(self):
@@ -45,7 +45,9 @@ class RadarInterface(object):
 
     self.delay = 0.0  # Delay of radar
 
-    self.rcp = create_radard_can_parser()
+    canbus = CanBus()
+    print "Using %d as obstacle CAN bus ID" % canbus.obstacle
+    self.rcp = create_radard_can_parser(canbus)
 
     context = zmq.Context()
     self.logcan = messaging.sub_sock(context, service_list['can'].port)
