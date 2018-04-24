@@ -247,7 +247,7 @@ class CarController(object):
         chime_cnt = 10
 
       if chime != 0:
-        can_sends.append(gmcan.create_chime_command(canbus.obstacle, chime, duration, chime_cnt))
+        can_sends.append(gmcan.create_chime_command(canbus.sw_gmlan, chime, duration, chime_cnt))
 
       # If canceling a repeated chime, cancel command must be
       # issued for the same chime type and duration
