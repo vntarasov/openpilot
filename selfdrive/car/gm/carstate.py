@@ -113,8 +113,8 @@ class CarState(object):
     #Because we're below the speed threshold, we know that LKAS is limited,
     #However due to the recovery code, the LKATorQueDeliveredStatus is 0 (inactive)
     #
-    #Just pretend that it's limited so alerts are properly sent.
-    if self.v_ego < self.LKAS_MINIMUM_SPEED_FOR_STEERING:
+    #Just pretend that it's limited so alerts are properly sent. Allow engage from standstill though.
+    if self.v_ego < self.LKAS_MINIMUM_SPEED_FOR_STEERING and self.v_ego > 0.001:
       self.lkas_status = 2 
 
     # 1 - open, 0 - closed
