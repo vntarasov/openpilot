@@ -99,9 +99,6 @@ class CarInterface(object):
     ret.carName = "gm"
     ret.carFingerprint = candidate
 
-    ret.enableSteer = True
-    ret.enableBrake = True
-    ret.enableGas = True
     ret.enableCruise = False
 
     # supports stop and go, but initial engage must be above 15mph
