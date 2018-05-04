@@ -167,6 +167,10 @@ class CarInterface(object):
 
     ret.steerRateCost = 0.5
 
+    # TODO: use fingerpting to go to passive
+    # if stock driver assist ECUs are online.
+    ret.enableCamera = True
+
     return ret
 
   # returns a car.CarState
