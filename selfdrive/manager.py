@@ -475,7 +475,7 @@ def manager_thread():
     should_start = should_start and avail > 0.02
 
     # require usb power
-    should_start = should_start and msg.thermal.usbOnline
+    #should_start = should_start and msg.thermal.usbOnline #Test fixing OP3T bug.
 
     should_start = should_start and accepted_terms and (not do_uninstall)
 
