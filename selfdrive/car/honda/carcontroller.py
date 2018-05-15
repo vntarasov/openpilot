@@ -115,7 +115,7 @@ class CarController(object):
 
     # *** compute control surfaces ***
     BRAKE_MAX = 1024/4
-    if CS.CP.carFingerprint in (CAR.CIVIC, CAR.ODYSSEY, CAR.PILOT):
+    if CS.CP.carFingerprint in (CAR.CIVIC, CAR.ODYSSEY, CAR.PILOT, CAR.RIDGELINE):
       is_fw_modified = os.getenv("DONGLE_ID") in ['99c94dc769b5d96e']
       STEER_MAX = 0x1FFF if is_fw_modified else 0x1000
     elif CS.CP.carFingerprint in (CAR.CRV, CAR.ACURA_RDX):
@@ -145,7 +145,7 @@ class CarController(object):
       can_sends.append(
         hondacan.create_brake_command(self.packer, apply_brake, pcm_override,
                                       pcm_cancel_cmd, hud.chime, hud.fcw, idx))
-      if not CS.brake_only:
+      if CS.CP.enableGasInterceptor:
         # send exactly zero if apply_gas is zero. Interceptor will send the max between read value and apply_gas.
         # This prevents unexpected pedal range rescaling
         can_sends.append(hondacan.create_gas_command(self.packer, apply_gas, idx))
