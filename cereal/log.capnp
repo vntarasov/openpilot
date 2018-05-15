@@ -1,7 +1,7 @@
-using Cxx = import "c++.capnp";
+using Cxx = import "./include/c++.capnp";
 $Cxx.namespace("cereal");
 
-using Java = import "java.capnp";
+using Java = import "./include/java.capnp";
 $Java.package("ai.comma.openpilot.cereal");
 $Java.outerClassname("Log");
 
@@ -485,6 +485,7 @@ struct EncodeIndex {
     bigBoxHEVC @2;       # bcamera.hevc
     chffrAndroidH264 @3; # acamera
     fullLosslessClip @4; # prcamera.mkv
+    front @5;            # dcamera.hevc
   }
 }
 
@@ -542,6 +543,7 @@ struct Plan {
     cruise @0;
     mpc1 @1;
     mpc2 @2;
+    mpc3 @3;
   }
 }
 
@@ -1376,6 +1378,7 @@ struct GPSPlannerPlan {
   acceleration @4 :Float32;
   pointsDEPRECATED @5 :List(ECEFPointDEPRECATED);
   points @6 :List(ECEFPoint);
+  xLookahead @7 :Float32;
 }
 
 struct TrafficEvent @0xacfa74a094e62626 {
@@ -1487,6 +1490,20 @@ struct OrbFeatures {
   ys @2 :List(Float32);
   descriptors @3 :Data;
   octaves @4 :List(Int8);
+
+  # match index to last OrbFeatures
+  # -1 if no match
+  timestampLastEof @5 :UInt64;
+  matches @6: List(Int16);
+}
+
+struct OrbFeaturesSummary {
+  timestampEof @0 :UInt64;
+  timestampLastEof @1 :UInt64;
+
+  featureCount @2 :UInt16;
+  matchCount @3 :UInt16;
+  computeNs @4 :UInt64;
 }
 
 struct OrbKeyFrame {
@@ -1564,5 +1581,6 @@ struct Event {
     applanixLocation @55 :LiveLocationData;
     orbKeyFrame @56 :OrbKeyFrame;
     uiLayoutState @57 :UiLayoutState;
+    orbFeaturesSummary @58 :OrbFeaturesSummary;
   }
 }
