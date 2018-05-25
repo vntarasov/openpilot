@@ -113,6 +113,7 @@ class CarInterface(object):
     ret.wheelbase = 2.69
     ret.steerRatio = 15.7
     ret.steerRatioRear = 0.
+    ret.steerControlType = car.CarParams.SteerControlType.torque
     ret.centerToFront = ret.wheelbase * 0.4 # wild guess
 
     # hardcoding honda civic 2016 touring params so they can be used to
