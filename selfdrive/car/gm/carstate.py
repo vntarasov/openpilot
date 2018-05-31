@@ -61,6 +61,9 @@ class CarState(object):
                          K=np.matrix([[0.12287673], [0.29666309]]))
     self.v_ego = 0.
 
+    #Minimum speed for LKAS to respond to commands (10kph ~6mph)
+    self.LKAS_MINIMUM_SPEED_FOR_STEERING = 3.0 #3.0m/s ~= 10.8kph. Good enough.
+
   def update(self):
     self.powertrain_cp.update(int(sec_since_boot() * 1e9), False)
     powertrain_cp = self.powertrain_cp
@@ -107,6 +110,13 @@ class CarState(object):
     # 0 - inactive, 1 - active, 2 - temporary limited, 3 - failed
     self.lkas_status = powertrain_cp.vl[388]['LKATorqueDeliveredStatus']
 
+    #Because we're below the speed threshold, we know that LKAS is limited,
+    #However due to the recovery code, the LKATorQueDeliveredStatus is 0 (inactive)
+    #
+    #Just pretend that it's limited so alerts are properly sent. Allow engage from standstill though.
+    if self.v_ego < self.LKAS_MINIMUM_SPEED_FOR_STEERING and self.v_ego > 0.001:
+      self.lkas_status = 2 
+
     # 1 - open, 0 - closed
     self.door_all_closed = (powertrain_cp.vl[298]['FrontLeftDoor'] == 0 and
       powertrain_cp.vl[298]['FrontRightDoor'] == 0 and
@@ -115,8 +125,13 @@ class CarState(object):
 
     # 1 - latched
     self.seatbelt = powertrain_cp.vl[298]['LeftSeatBelt'] == 1
+    
 
-    self.steer_error = False
+    #If LKAS is not responding to commands and we've above the ignore threshold. Problem
+    if self.v_ego > self.LKAS_MINIMUM_SPEED_FOR_STEERING and self.lkas_status > 1: 
+      self.steer_error = True
+    else:
+      self.steer_error = False
 
     self.brake_error = False
     self.esp_disabled = False

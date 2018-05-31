@@ -176,10 +176,17 @@ class CarController(object):
     if self.lkas_active and CS.lkas_status != 1:
       # SCM ignores steering command. Workaround is to
       # temporary disable steering command.
-      # Re-enabling after 200ms seems to be working great
+      # Re-enabling after 1 second works better.
       self.lkas_active = False
       if self.inhibit_steer_for == 0:
-        self.inhibit_steer_for = 20
+        self.inhibit_steer_for = 100
+
+    #If we're below LKAS control threshold, then inhibit LKAS torque
+    # My running theory is that the SCM is being spammed when < LKAS_MINIMUM_SPEED_FOR_STEERING 
+    # and refusing to accept a reset in a timely matter when above the speed threshold.
+    if CS.v_ego < CS.LKAS_MINIMUM_SPEED_FOR_STEERING:
+      self.inhibit_steer = 2
+      self.lkas_active = True
 
     if self.inhibit_steer_for > 0:
       apply_steer = 0
