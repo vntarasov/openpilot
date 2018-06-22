@@ -145,7 +145,7 @@ class CarInterface(object):
     ret.steerKpV = [0.1, 0.35]
     ret.steerKiBP = [9., 27.]
     ret.steerKiV = [0.05, 0.1]
-    ret.steerKf = 0.
+    ret.steerKf = 0.00003   # full torque for 20 deg at 80mph means 0.00007818594
     ret.steerMaxBP = [0.] # m/s
     ret.steerMaxV = [1.]
     ret.gasMaxBP = [0.]
