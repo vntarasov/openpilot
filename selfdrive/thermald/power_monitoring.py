@@ -17,7 +17,7 @@ CAR_VOLTAGE_LOW_PASS_K = 0.091 # LPF gain for 5s tau (dt/tau / (dt/tau + 1))
 CAR_BATTERY_CAPACITY_uWh = 30e6
 CAR_CHARGING_RATE_W = 45
 
-VBATT_PAUSE_CHARGING = 11.0
+VBATT_PAUSE_CHARGING = 11.5
 MAX_TIME_OFFROAD_S = 30*3600
 
 # Parameters
@@ -228,11 +228,10 @@ class PowerMonitoring:
 
     now = sec_since_boot()
     panda_charging = (health.health.usbPowerMode != log.HealthData.UsbPowerMode.client)
-    BATT_PERC_OFF = 10 if LEON else 3
+    BATT_PERC_OFF = 30
 
     should_shutdown = False
     # Wait until we have shut down charging before powering down
     should_shutdown |= (not panda_charging and self.should_disable_charging(health, offroad_timestamp))
     should_shutdown |= ((get_battery_capacity() < BATT_PERC_OFF) and (not get_battery_charging()) and ((now - offroad_timestamp) > 60))
-    should_shutdown &= started_seen
     return should_shutdown
